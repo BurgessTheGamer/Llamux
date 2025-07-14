@@ -7,7 +7,25 @@
       "Bash(python:*)",
       "Bash(git init:*)",
       "Bash(git remote add:*)",
-      "Bash(git add:*)"
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git push:*)",
+      "Bash(ls:*)",
+      "Bash(./scripts/download-model.sh:*)",
+      "Bash(chmod:*)",
+      "Bash(xxd:*)",
+      "Bash(gcc:*)",
+      "Bash(./test_gguf_parser models/tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf)",
+      "Bash(make:*)",
+      "Bash(mv:*)",
+      "Bash(sudo cp:*)",
+      "Bash(sudo insmod:*)",
+      "Bash(sudo dmesg:*)",
+      "Bash(sudo rm:*)",
+      "Bash(npm:*)",
+      "Bash(apt-get:*)",
+      "Bash(apt-get install:*)",
+      "Bash(opencode:*)"
     ],
     "deny": []
   }

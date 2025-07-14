@@ -23,14 +23,8 @@
 struct ggml_context;
 struct ggml_tensor;
 
-/* Tensor type (simplified) */
-enum ggml_type {
-    GGML_TYPE_F32   = 0,
-    GGML_TYPE_F16   = 1,
-    GGML_TYPE_Q4_0  = 2,
-    GGML_TYPE_Q4_K  = 12,
-    GGML_TYPE_COUNT
-};
+/* Include gguf_parser.h for enum ggml_type definition */
+#include "gguf_parser.h"
 
 /* Operations */
 enum ggml_op {
@@ -52,6 +46,7 @@ enum ggml_op {
     GGML_OP_GET_ROWS,
     GGML_OP_CPY,
     GGML_OP_CONT,
+    GGML_OP_SCALE,
     GGML_OP_COUNT
 };
 
@@ -150,8 +145,16 @@ struct ggml_tensor *ggml_rms_norm(struct ggml_context *ctx,
 struct ggml_tensor *ggml_soft_max(struct ggml_context *ctx,
                                   struct ggml_tensor *a);
 
+struct ggml_tensor *ggml_scale(struct ggml_context *ctx,
+                              struct ggml_tensor *a,
+                              float scale);
+
 struct ggml_tensor *ggml_silu(struct ggml_context *ctx,
                              struct ggml_tensor *a);
+
+struct ggml_tensor *ggml_get_rows(struct ggml_context *ctx,
+                                 struct ggml_tensor *a,
+                                 struct ggml_tensor *b);
 
 struct ggml_tensor *ggml_rope(struct ggml_context *ctx,
                              struct ggml_tensor *a,

@@ -8,11 +8,21 @@
 #include <linux/seq_file.h>
 #include <linux/uaccess.h>
 #include <linux/slab.h>
+#include <linux/wait.h>
+#include <linux/delay.h>
 
 extern struct {
     bool initialized;
+    void *model_memory;
+    size_t model_size;
+    struct gguf_model *gguf_model;
+    struct ggml_context *ggml_ctx;
+    struct llama_model *llama;
+    struct llama_state *inference_state;
     struct mutex lock;
+    struct task_struct *inference_thread;
     atomic_t request_pending;
+    wait_queue_head_t inference_waitq;
     char *current_prompt;
     char *current_response;
 } llama_state;
@@ -27,7 +37,8 @@ static ssize_t llamux_prompt_write(struct file *file, const char __user *buffer,
     size_t len;
     
     if (!llama_state.initialized) {
-        return -ENODEV;
+        pr_warn("🦙 Llamux: Model not fully initialized yet, but accepting prompt\n");
+        /* Don't return error - let it queue up */
     }
     
     if (atomic_read(&llama_state.request_pending)) {
@@ -61,6 +72,9 @@ static ssize_t llamux_prompt_write(struct file *file, const char __user *buffer,
     atomic_set(&llama_state.request_pending, 1);
     mutex_unlock(&llama_state.lock);
     
+    /* Wake up the inference thread */
+    wake_up(&llama_state.inference_waitq);
+    
     pr_info("🦙 Llamux: Received prompt: %s\n", prompt_buffer);
     
     return count;
@@ -69,8 +83,15 @@ static ssize_t llamux_prompt_write(struct file *file, const char __user *buffer,
 /* Handle prompt read - shows last response */
 static int llamux_prompt_show(struct seq_file *m, void *v)
 {
+    /* Wait up to 5 seconds for response if processing */
+    int timeout = 50; /* 50 * 100ms = 5 seconds */
+    while (atomic_read(&llama_state.request_pending) && timeout > 0) {
+        msleep(100);
+        timeout--;
+    }
+    
     if (atomic_read(&llama_state.request_pending)) {
-        seq_printf(m, "🦙 Processing...\n");
+        seq_printf(m, "🦙 Still processing... (timeout)\n");
     } else if (llama_state.current_response && 
                strlen(llama_state.current_response) > 0) {
         seq_printf(m, "🦙 Response: %s\n", llama_state.current_response);

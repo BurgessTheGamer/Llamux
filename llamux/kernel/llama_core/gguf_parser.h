@@ -12,6 +12,10 @@
 
 #include <linux/types.h>
 
+/* Forward declarations */
+struct ggml_context;
+struct ggml_tensor;
+
 /* GGUF magic number */
 #define GGUF_MAGIC 0x46554747  /* "GGUF" */
 #define GGUF_VERSION 3
@@ -43,6 +47,7 @@ enum ggml_type {
     GGML_TYPE_Q5_K = 13,
     GGML_TYPE_Q6_K = 14,
     GGML_TYPE_Q8_K = 15,
+    GGML_TYPE_I32  = 16,
     GGML_TYPE_COUNT
 };
 
@@ -75,6 +80,7 @@ struct gguf_tensor_info {
     u32 type;         /* ggml_type */
     u64 offset;       /* Offset in file */
     size_t size;      /* Total size in bytes */
+    void *data;       /* Pointer to tensor data in memory */
 };
 
 /* Parsed GGUF model */
@@ -89,6 +95,9 @@ struct gguf_model {
     u32 embedding_length;
     u32 n_layers;
     u32 n_heads;
+    u32 n_heads_kv;
+    u32 feed_forward_length;
+    u32 rope_dimension_count;
     
     /* Tensors */
     struct gguf_tensor_info *tensors;
@@ -104,15 +113,14 @@ struct gguf_model {
 int gguf_parse_header(const void *data, size_t size, struct gguf_header *header);
 int gguf_parse_metadata(const void *data, size_t size, struct gguf_model *model);
 int gguf_parse_tensor_info(const void *data, size_t size, struct gguf_model *model);
+int gguf_load_tensor_data(const void *file_data, size_t file_size, struct gguf_model *model, void *tensor_memory, size_t memory_size);
 int gguf_validate_model(struct gguf_model *model);
 void gguf_free_model(struct gguf_model *model);
+void gguf_print_model_info(struct gguf_model *model);
+struct gguf_tensor_info *gguf_find_tensor(struct gguf_model *model, const char *name);
+struct ggml_tensor *gguf_tensor_to_ggml(struct ggml_context *ctx, struct gguf_tensor_info *info);
 
 /* Tensor operations */
-size_t ggml_type_size(enum ggml_type type);
-size_t ggml_tensor_size(const struct gguf_tensor_info *tensor);
-const char *ggml_type_name(enum ggml_type type);
-
-/* Utility functions */
-void gguf_print_model_info(struct gguf_model *model);
+size_t gguf_tensor_size(enum ggml_type type, int64_t n_elements);
 
 #endif /* _LLAMUX_GGUF_PARSER_H */

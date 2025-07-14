@@ -6,8 +6,8 @@
 # Module name
 obj-m += llama_core.o
 
-# Source files
-llama_core-objs := llama_core.o gguf_parser.o memory_reserve.o ggml_kernel.o tokenizer.o llama_model.o llama_proc.o
+# Source files (don't include llama_core.o in the objects list)
+llama_core-objs := main.o gguf_parser.o memory_reserve_simple.o ggml_kernel.o tokenizer.o llama_model.o llama_proc.o quantize.o
 
 # Kernel source directory (update this for your system)
 KDIR ?= /lib/modules/$(shell uname -r)/build
@@ -18,6 +18,10 @@ PWD := $(shell pwd)
 # Compiler flags
 ccflags-y := -Wall -Wno-unused-function
 ccflags-y += -DLLAMUX_DEBUG
+# Enable SIMD optimizations
+ccflags-y += -msse -msse2 -msse3 -mssse3 -msse4.1 -msse4.2
+# Enable AVX2 for modern CPUs (comment out if not supported)
+ccflags-y += -mavx -mavx2 -mfma
 
 # Build targets
 all:

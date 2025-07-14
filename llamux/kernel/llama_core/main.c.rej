@@ -1,0 +1,22 @@
+--- main.c.orig
++++ main.c
+@@ -241,8 +241,8 @@
+     }
+     
+     /* Try to load model from firmware */
+-    ret = -ENOENT; /* Pretend file not found */
+-    fw = NULL;
++    ret = request_firmware(&fw, "llamux/tinyllama.gguf", NULL);
++    /* fw = NULL; */
+     if (ret == 0) {
+         pr_info("🦙 Llamux: Found model file, size: %zu MB\n", fw->size / (1024*1024));
+         
+@@ -313,7 +313,7 @@
+         }
+         
+         /* For now, limit tensor loading to prevent memory issues */
+-        size_t max_tensor_size = 64 * 1024 * 1024; /* 64MB limit for testing */
++        size_t max_tensor_size = 256ULL * 1024ULL * 1024ULL; /* 256MB limit */
+         size_t total_loaded = 0;
+         
+         pr_info("🦙 Llamux: Loading model tensors (limited to %zu MB)...\n", 

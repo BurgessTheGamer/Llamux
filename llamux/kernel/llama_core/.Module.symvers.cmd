@@ -1,0 +1,1 @@
+savedcmd_/root/Idea/llamux/kernel/llama_core/Module.symvers :=  scripts/mod/modpost -M -m -a      -o /root/Idea/llamux/kernel/llama_core/Module.symvers -T /root/Idea/llamux/kernel/llama_core/modules.order -i Module.symvers -e 

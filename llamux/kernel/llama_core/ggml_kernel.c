@@ -10,9 +10,15 @@
 #include <linux/kernel.h>
 #include <linux/slab.h>
 #include <linux/string.h>
+#include <linux/vmalloc.h>
 #include <linux/mm.h>
 #include <asm/fpu/api.h>
 #include "ggml_kernel.h"
+#include "quantize.h"
+#include "ggml_simd.h"
+
+/* Memory alignment for kernel operations */
+#define GGML_MEM_ALIGN 32
 
 /* Element sizes */
 static const size_t GGML_TYPE_SIZE[GGML_TYPE_COUNT] = {
@@ -21,6 +27,40 @@ static const size_t GGML_TYPE_SIZE[GGML_TYPE_COUNT] = {
     [GGML_TYPE_Q4_0] = sizeof(uint8_t) + sizeof(uint16_t), /* simplified */
     [GGML_TYPE_Q4_K] = 144, /* actual Q4_K block size */
 };
+
+/* Aligned memory allocation for kernel space */
+static void *ggml_aligned_malloc(size_t size) {
+    void *ptr;
+    size_t aligned_size = (size + GGML_MEM_ALIGN - 1) & ~(GGML_MEM_ALIGN - 1);
+    
+    /* Try kmalloc first for smaller allocations */
+    if (aligned_size <= PAGE_SIZE * 2) {
+        ptr = kmalloc(aligned_size + GGML_MEM_ALIGN, GFP_KERNEL);
+        if (ptr) {
+            void *aligned = (void *)(((uintptr_t)ptr + GGML_MEM_ALIGN - 1) & ~(GGML_MEM_ALIGN - 1));
+            /* Store original pointer just before aligned address */
+            *((void **)aligned - 1) = ptr;
+            return aligned;
+        }
+    }
+    
+    /* Fall back to vmalloc for larger allocations */
+    ptr = vmalloc(aligned_size);
+    return ptr;
+}
+
+static void ggml_aligned_free(void *ptr) {
+    if (!ptr) return;
+    
+    /* Check if it's a vmalloc'd pointer */
+    if (is_vmalloc_addr(ptr)) {
+        vfree(ptr);
+    } else {
+        /* Get original kmalloc pointer */
+        void *orig = *((void **)ptr - 1);
+        kfree(orig);
+    }
+}
 
 /* Get element size */
 size_t ggml_element_size(enum ggml_type type) {
@@ -45,7 +85,10 @@ struct ggml_context *ggml_init(size_t mem_size, void *mem_buffer) {
     
     if (!mem_buffer) {
         /* Allocate memory if not provided */
-        mem_buffer = vzalloc(mem_size);
+        mem_buffer = vmalloc(mem_size);
+        if (mem_buffer) {
+            memset(mem_buffer, 0, mem_size);
+        }
         if (!mem_buffer) {
             pr_err("🦙 GGML: Failed to allocate %zu bytes\n", mem_size);
             return NULL;
@@ -216,12 +259,11 @@ static void ggml_compute_forward_mul_mat_f32_f32(
     kernel_fpu_begin();
     
     for (int64_t i = 0; i < ne01; i++) {
+        const float *a_row = a + i * ne00;
         for (int64_t j = 0; j < ne11; j++) {
-            float sum = 0.0f;
-            for (int64_t k = 0; k < ne00; k++) {
-                sum += a[i * ne00 + k] * b[j * ne10 + k];
-            }
-            c[i * ne11 + j] = sum;
+            /* Use SIMD optimized dot product */
+            const float *b_row = b + j * ne10;
+            c[i * ne11 + j] = ggml_vec_dot_f32(a_row, b_row, ne00);
         }
     }
     
@@ -252,7 +294,14 @@ static void ggml_compute_forward_rms_norm_f32(
             sum += row[j] * row[j];
         }
         
-        const float rms = 1.0f / sqrtf(sum / ne00 + eps);
+        /* Approximate square root for kernel space */
+        float x = sum / ne00 + eps;
+        float xhalf = 0.5f * x;
+        int i = *(int*)&x;
+        i = 0x5f3759df - (i >> 1); /* Fast inverse square root */
+        x = *(float*)&i;
+        x = x * (1.5f - xhalf * x * x);
+        const float rms = x;
         
         /* Normalize */
         for (int64_t j = 0; j < ne00; j++) {
@@ -321,18 +370,27 @@ struct ggml_tensor *ggml_mul(
 }
 
 /* Matrix multiplication */
-struct ggml_tensor *ggml_mul_mat(
-    struct ggml_context *ctx,
-    struct ggml_tensor *a,
-    struct ggml_tensor *b) {
+struct ggml_tensor *ggml_mul_mat(struct ggml_context *ctx,
+                                struct ggml_tensor *a,
+                                struct ggml_tensor *b) {
+    if (!ctx || !a || !b) {
+        pr_err("🦙 GGML: ggml_mul_mat called with NULL parameters!\n");
+        return NULL;
+    }
     
-    /* Result shape: [a->ne[1], b->ne[1]] */
-    const int64_t ne[2] = { a->ne[1], b->ne[1] };
+    /* b should contain row indices */
+    if (b->type != GGML_TYPE_I32) {
+        pr_err("🦙 GGML: get_rows indices must be I32\n");
+        return NULL;
+    }
     
-    struct ggml_tensor *result = ggml_new_tensor(ctx, GGML_TYPE_F32, 2, ne);
+    /* Result has same shape as a except first dimension matches b */
+    int64_t ne[GGML_MAX_DIMS] = {a->ne[0], b->ne[0], a->ne[2], a->ne[3]};
+    
+    struct ggml_tensor *result = ggml_new_tensor(ctx, a->type, a->n_dims, ne);
     if (!result) return NULL;
     
-    result->op = GGML_OP_MUL_MAT;
+    result->op = GGML_OP_GET_ROWS;
     result->src0 = a;
     result->src1 = b;
     
@@ -344,6 +402,11 @@ struct ggml_tensor *ggml_rms_norm(
     struct ggml_context *ctx,
     struct ggml_tensor *a,
     float eps) {
+    
+    if (!ctx || !a) {
+        pr_err("🦙 GGML: ggml_rms_norm called with NULL tensor!\n");
+        return NULL;
+    }
     
     struct ggml_tensor *result = ggml_new_tensor(ctx, a->type, a->n_dims, a->ne);
     if (!result) return NULL;
@@ -358,10 +421,72 @@ struct ggml_tensor *ggml_rms_norm(
     return result;
 }
 
+/* Export symbols for kernel module linking */
+EXPORT_SYMBOL_GPL(ggml_init);
+EXPORT_SYMBOL_GPL(ggml_free);
+EXPORT_SYMBOL_GPL(ggml_new_tensor);
+EXPORT_SYMBOL_GPL(ggml_new_tensor_1d);
+EXPORT_SYMBOL_GPL(ggml_new_tensor_2d);
+EXPORT_SYMBOL_GPL(ggml_new_tensor_3d);
+EXPORT_SYMBOL_GPL(ggml_add);
+EXPORT_SYMBOL_GPL(ggml_mul);
+EXPORT_SYMBOL_GPL(ggml_mul_mat);
+EXPORT_SYMBOL_GPL(ggml_rms_norm);
+EXPORT_SYMBOL_GPL(ggml_get_rows);
+EXPORT_SYMBOL_GPL(ggml_scale);
+EXPORT_SYMBOL_GPL(ggml_rope);
+EXPORT_SYMBOL_GPL(ggml_silu);
+EXPORT_SYMBOL_GPL(ggml_soft_max);
+EXPORT_SYMBOL_GPL(ggml_print_tensor_info);
+
+/* Scale operation */
+struct ggml_tensor *ggml_scale(struct ggml_context *ctx,
+                              struct ggml_tensor *a,
+                              float scale) {
+    if (!ctx || !a) return NULL;
+    
+    struct ggml_tensor *result = ggml_new_tensor(ctx, a->type, a->n_dims, a->ne);
+    if (!result) return NULL;
+    
+    result->op = GGML_OP_SCALE;
+    result->src0 = a;
+    /* Store scale factor in extra data */
+    result->extra = kmalloc(sizeof(float), GFP_KERNEL);
+    if (result->extra) {
+        *(float *)result->extra = scale;
+    }
+    
+    return result;
+}
+
+/* RoPE (Rotary Position Embeddings) */
+struct ggml_tensor *ggml_rope(struct ggml_context *ctx,
+                             struct ggml_tensor *a,
+                             int n_past,
+                             int n_dims,
+                             int mode) {
+    if (!ctx || !a) return NULL;
+    
+    struct ggml_tensor *result = ggml_new_tensor(ctx, a->type, a->n_dims, a->ne);
+    if (!result) return NULL;
+    
+    result->op = GGML_OP_ROPE;
+    result->src0 = a;
+    /* Store parameters in extra data */
+    result->extra = kmalloc(sizeof(int) * 3, GFP_KERNEL);
+    if (result->extra) {
+        ((int *)result->extra)[0] = n_past;
+        ((int *)result->extra)[1] = n_dims;
+        ((int *)result->extra)[2] = mode;
+    }
+    
+    return result;
+}
+
 /* SiLU activation */
-struct ggml_tensor *ggml_silu(
-    struct ggml_context *ctx,
-    struct ggml_tensor *a) {
+struct ggml_tensor *ggml_silu(struct ggml_context *ctx,
+                             struct ggml_tensor *a) {
+    if (!ctx || !a) return NULL;
     
     struct ggml_tensor *result = ggml_new_tensor(ctx, a->type, a->n_dims, a->ne);
     if (!result) return NULL;
@@ -372,43 +497,50 @@ struct ggml_tensor *ggml_silu(
     return result;
 }
 
-/* Compute forward pass for a single operation */
-void ggml_compute_forward(struct ggml_tensor *tensor) {
-    switch (tensor->op) {
-    case GGML_OP_NONE:
-        /* No operation needed */
-        break;
-        
-    case GGML_OP_MUL_MAT:
-        if (tensor->src0->type == GGML_TYPE_F32 && 
-            tensor->src1->type == GGML_TYPE_F32) {
-            ggml_compute_forward_mul_mat_f32_f32(
-                tensor->src0, tensor->src1, tensor);
-        }
-        break;
-        
-    case GGML_OP_RMS_NORM:
-        if (tensor->src0->type == GGML_TYPE_F32) {
-            float eps = tensor->extra ? *(float *)tensor->extra : 1e-6f;
-            ggml_compute_forward_rms_norm_f32(tensor->src0, tensor, eps);
-        }
-        break;
-        
-    case GGML_OP_SILU:
-        if (tensor->src0->type == GGML_TYPE_F32) {
-            ggml_compute_forward_silu_f32(tensor->src0, tensor);
-        }
-        break;
-        
-    default:
-        pr_warn("🦙 GGML: Unimplemented operation %d\n", tensor->op);
-        break;
-    }
+/* Softmax */
+struct ggml_tensor *ggml_soft_max(struct ggml_context *ctx,
+                                 struct ggml_tensor *a) {
+    if (!ctx || !a) return NULL;
+    
+    struct ggml_tensor *result = ggml_new_tensor(ctx, a->type, a->n_dims, a->ne);
+    if (!result) return NULL;
+    
+    result->op = GGML_OP_SOFT_MAX;
+    result->src0 = a;
+    
+    return result;
 }
 
-/* Print tensor information */
 void ggml_print_tensor_info(const struct ggml_tensor *t) {
     pr_info("🦙 Tensor '%s': type=%d, dims=%d [%lld,%lld,%lld,%lld]\n",
             t->name, t->type, t->n_dims,
             t->ne[0], t->ne[1], t->ne[2], t->ne[3]);
+}
+
+/* Get rows operation - extracts rows from embedding table */
+struct ggml_tensor *ggml_get_rows(struct ggml_context *ctx,
+                                 struct ggml_tensor *a,
+                                 struct ggml_tensor *b) {
+    if (!ctx || !a || !b) {
+        pr_err("🦙 GGML: ggml_get_rows called with NULL parameters!\n");
+        return NULL;
+    }
+    
+    /* b should contain row indices */
+    if (b->type != GGML_TYPE_I32) {
+        pr_err("🦙 GGML: get_rows indices must be I32\n");
+        return NULL;
+    }
+    
+    /* Result has same shape as a except first dimension matches b */
+    int64_t ne[GGML_MAX_DIMS] = {a->ne[0], b->ne[0], a->ne[2], a->ne[3]};
+    
+    struct ggml_tensor *result = ggml_new_tensor(ctx, a->type, a->n_dims, ne);
+    if (!result) return NULL;
+    
+    result->op = GGML_OP_GET_ROWS;
+    result->src0 = a;
+    result->src1 = b;
+    
+    return result;
 }

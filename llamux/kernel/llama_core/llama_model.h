@@ -12,6 +12,9 @@
 #include "ggml_kernel.h"
 #include "tokenizer.h"
 
+/* Forward declaration */
+struct gguf_model;
+
 /* Model hyperparameters (TinyLlama-1.1B) */
 #define LLAMA_N_VOCAB      32000
 #define LLAMA_N_CTX        2048    /* max context length */
@@ -30,6 +33,7 @@ struct llama_hparams {
     int32_t n_ctx;
     int32_t n_embd;
     int32_t n_head;
+    int32_t n_head_kv; /* number of key-value heads (for GQA) */
     int32_t n_layer;
     int32_t n_ff;
     int32_t n_rot;     /* rotary embedding dimension */
@@ -110,6 +114,7 @@ struct llama_state {
 
 /* Model functions */
 struct llama_model *llama_model_create(struct ggml_context *ctx);
+struct llama_model *llama_model_create_from_gguf(struct ggml_context *ctx, struct gguf_model *gguf);
 void llama_model_free(struct llama_model *model);
 int llama_model_load_weights(struct llama_model *model, void *data, size_t size);
 
@@ -134,7 +139,6 @@ int llama_generate(struct llama_state *state,
                    int max_tokens);
 
 /* Utility functions */
-void llama_print_model_info(const struct llama_model *model);
-float llama_perplexity(struct llama_state *state);
+void llama_print_model_info(struct llama_model *model);
 
 #endif /* _LLAMUX_LLAMA_MODEL_H */

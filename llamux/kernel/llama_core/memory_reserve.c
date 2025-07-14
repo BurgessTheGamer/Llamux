@@ -8,7 +8,6 @@
 #include <linux/kernel.h>
 #include <linux/init.h>
 #include <linux/memblock.h>
-#include <linux/bootmem.h>
 #include <linux/mm.h>
 #include <linux/io.h>
 #include <linux/slab.h>

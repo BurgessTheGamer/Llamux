@@ -10,6 +10,7 @@
 #include <linux/string.h>
 #include <linux/bug.h>
 #include "gguf_parser.h"
+#include "ggml_kernel.h"
 
 /* Get size in bytes for each tensor type */
 size_t ggml_type_size(enum ggml_type type)
@@ -117,6 +118,7 @@ static const u8 *read_gguf_string(const u8 *ptr, char **str)
     /* Allocate and copy string */
     *str = kzalloc(length + 1, GFP_KERNEL);
     if (!*str) {
+        pr_err("🦙 Llamux: Failed to allocate %llu bytes for string\n", length + 1);
         return NULL;
     }
     
@@ -136,17 +138,24 @@ int gguf_parse_metadata(const void *data, size_t size, struct gguf_model *model)
     /* Skip header */
     ptr += sizeof(struct gguf_header);
     
+    pr_info("🦙 Llamux: Parsing %llu metadata entries\n", model->header.metadata_kv_count);
+    pr_info("🦙 Llamux: Starting at offset %ld, size %zu\n", ptr - (const u8 *)data, size);
+    
     /* Parse each metadata key-value pair */
     for (i = 0; i < model->header.metadata_kv_count; i++) {
         char *key = NULL;
         u32 value_type;
         
         /* Read key */
+        pr_debug("🦙 Llamux: Reading metadata key %llu at offset %ld\n", i, ptr - (const u8 *)data);
         ptr = read_gguf_string(ptr, &key);
         if (!ptr || ptr >= end) {
-            pr_err("🦙 Llamux: Failed to read metadata key\n");
+            pr_err("🦙 Llamux: Failed to read metadata key %llu at offset %ld\n", 
+                   i, ptr ? (ptr - (const u8 *)data) : -1);
             return -EINVAL;
         }
+        
+        pr_info("🦙 Llamux: Metadata key %llu: '%s'\n", i, key);
         
         /* Read value type */
         memcpy(&value_type, ptr, sizeof(u32));
@@ -169,20 +178,106 @@ int gguf_parse_metadata(const void *data, size_t size, struct gguf_model *model)
         } else if (strcmp(key, "llama.attention.head_count") == 0 && value_type == GGUF_TYPE_UINT32) {
             memcpy(&model->n_heads, ptr, sizeof(u32));
             ptr += sizeof(u32);
+        } else if (strcmp(key, "llama.attention.head_count_kv") == 0 && value_type == GGUF_TYPE_UINT32) {
+            memcpy(&model->n_heads_kv, ptr, sizeof(u32));
+            ptr += sizeof(u32);
+        } else if (strcmp(key, "llama.feed_forward_length") == 0 && value_type == GGUF_TYPE_UINT32) {
+            memcpy(&model->feed_forward_length, ptr, sizeof(u32));
+            ptr += sizeof(u32);
+        } else if (strcmp(key, "llama.rope.dimension_count") == 0 && value_type == GGUF_TYPE_UINT32) {
+            memcpy(&model->rope_dimension_count, ptr, sizeof(u32));
+            ptr += sizeof(u32);
         } else {
-            /* Skip unknown metadata */
-            /* TODO: Implement full value parsing */
-            pr_debug("🦙 Llamux: Skipping metadata key: %s\n", key);
+            /* Skip unknown metadata - need to properly parse value to advance pointer */
+            switch (value_type) {
+            case GGUF_TYPE_UINT8:
+            case GGUF_TYPE_INT8:
+            case GGUF_TYPE_BOOL:
+                ptr += 1;
+                break;
+            case GGUF_TYPE_UINT16:
+            case GGUF_TYPE_INT16:
+                ptr += 2;
+                break;
+            case GGUF_TYPE_UINT32:
+            case GGUF_TYPE_INT32:
+            case GGUF_TYPE_FLOAT32:
+                ptr += 4;
+                break;
+            case GGUF_TYPE_UINT64:
+            case GGUF_TYPE_INT64:
+            case GGUF_TYPE_FLOAT64:
+                ptr += 8;
+                break;
+            case GGUF_TYPE_STRING:
+                {
+                    u64 str_len;
+                    memcpy(&str_len, ptr, sizeof(u64));
+                    ptr += sizeof(u64) + str_len;
+                }
+                break;
+            case GGUF_TYPE_ARRAY:
+                {
+                    u32 arr_type;
+                    u64 arr_len, j;
+                    memcpy(&arr_type, ptr, sizeof(u32));
+                    ptr += sizeof(u32);
+                    memcpy(&arr_len, ptr, sizeof(u64));
+                    ptr += sizeof(u64);
+                    
+                    /* Skip array elements based on type */
+                    for (j = 0; j < arr_len; j++) {
+                        switch (arr_type) {
+                        case GGUF_TYPE_UINT32:
+                        case GGUF_TYPE_INT32:
+                        case GGUF_TYPE_FLOAT32:
+                            ptr += 4;
+                            break;
+                        case GGUF_TYPE_FLOAT64:
+                            ptr += 8;
+                            break;
+                        case GGUF_TYPE_STRING:
+                            {
+                                u64 str_len;
+                                if (ptr + sizeof(u64) > end) {
+                                    pr_err("🦙 Llamux: String array out of bounds\n");
+                                    kfree(key);
+                                    return -EINVAL;
+                                }
+                                memcpy(&str_len, ptr, sizeof(u64));
+                                ptr += sizeof(u64);
+                                
+                                if (ptr + str_len > end) {
+                                    pr_err("🦙 Llamux: String in array out of bounds (len=%llu)\n", str_len);
+                                    kfree(key);
+                                    return -EINVAL;
+                                }
+                                ptr += str_len;
+                            }
+                            break;
+                        default:
+                            pr_warn("🦙 Llamux: Unsupported array type %u\n", arr_type);
+                            return -EINVAL;
+                        }
+                    }
+                }
+                break;
+            default:
+                pr_warn("🦙 Llamux: Unknown value type %u for key %s\n", value_type, key);
+                break;
+            }
         }
         
         kfree(key);
         
         if (ptr >= end) {
-            pr_err("🦙 Llamux: Metadata parsing overrun\n");
+            pr_err("🦙 Llamux: Metadata parsing overrun at key %llu\n", i);
             return -EINVAL;
         }
     }
     
+    pr_info("🦙 Llamux: Successfully parsed %llu metadata entries\n", 
+            model->header.metadata_kv_count);
     return ptr - (const u8 *)data;
 }
 
@@ -192,9 +287,19 @@ int gguf_parse_tensor_info(const void *data, size_t size, struct gguf_model *mod
     const u8 *ptr = data;
     const u8 *end = ptr + size;
     u64 i, j;
+    int metadata_size;
     
-    /* Skip to tensor info section (after header and metadata) */
-    /* This is simplified - real implementation needs proper offset calculation */
+    /* Skip header */
+    ptr += sizeof(struct gguf_header);
+    
+    /* Parse metadata again to get correct offset */
+    metadata_size = gguf_parse_metadata(data, size, model);
+    if (metadata_size < 0) {
+        return metadata_size;
+    }
+    
+    /* Move to tensor info section */
+    ptr = data + metadata_size;
     
     /* Allocate tensor array */
     model->tensors = kzalloc(model->header.tensor_count * sizeof(struct gguf_tensor_info), 
@@ -236,11 +341,18 @@ int gguf_parse_tensor_info(const void *data, size_t size, struct gguf_model *mod
         /* Calculate size */
         tensor->size = ggml_tensor_size(tensor);
         
-        pr_debug("🦙 Llamux: Tensor %llu: %s, type=%s, dims=%llu", 
+        pr_debug("🦙 Llamux: Tensor %llu: %s, type=%s, dims=%u", 
                 i, tensor->name, ggml_type_name(tensor->type), tensor->n_dims);
     }
     
     model->tensor_count = model->header.tensor_count;
+    
+    /* Calculate data offset - align to 32 bytes */
+    u64 tensor_info_end = ptr - (const u8 *)data;
+    model->data_offset = (tensor_info_end + 31) & ~31ULL;
+    
+    pr_info("🦙 Llamux: Parsed %llu tensors, data starts at offset %llu\n",
+            model->tensor_count, model->data_offset);
     
     return 0;
 }
@@ -295,17 +407,135 @@ void gguf_free_model(struct gguf_model *model)
     /* Note: model->data should be freed by caller */
 }
 
-/* Print model information */
-void gguf_print_model_info(struct gguf_model *model)
+/* Load tensor data from GGUF file */
+int gguf_load_tensor_data(const void *file_data, size_t file_size, struct gguf_model *model, void *tensor_memory, size_t memory_size)
 {
-    pr_info("🦙 Llamux Model Information:\n");
+    const u8 *file_ptr = (const u8 *)file_data;
+    u8 *mem_ptr = (u8 *)tensor_memory;
+    size_t total_size = 0;
+    u64 i;
+    
+    if (!file_data || !model || !tensor_memory || !model->tensors) {
+        pr_err("🦙 Llamux: Invalid parameters for tensor loading\n");
+        return -EINVAL;
+    }
+    
+    pr_info("🦙 Llamux: Loading tensor data from offset %llu\n", model->data_offset);
+    
+    /* Check if data offset is valid */
+    if (model->data_offset >= file_size) {
+        pr_err("🦙 Llamux: Data offset %llu exceeds file size %zu\n", 
+               model->data_offset, file_size);
+        return -EINVAL;
+    }
+    
+    /* Copy tensor data */
+    for (i = 0; i < model->tensor_count; i++) {
+        struct gguf_tensor_info *tensor = &model->tensors[i];
+        
+        if (tensor->offset + tensor->size > file_size - model->data_offset) {
+            pr_err("🦙 Llamux: Tensor %s exceeds file bounds\n", tensor->name);
+            return -EINVAL;
+        }
+        
+        if (total_size + tensor->size > memory_size) {
+            pr_err("🦙 Llamux: Not enough memory for tensor %s\n", tensor->name);
+            return -ENOMEM;
+        }
+        
+        /* Copy tensor data */
+        memcpy(mem_ptr + total_size, 
+               file_ptr + model->data_offset + tensor->offset, 
+               tensor->size);
+        
+        /* Update tensor data pointer */
+        tensor->data = mem_ptr + total_size;
+        total_size += tensor->size;
+        
+        pr_debug("🦙 Llamux: Loaded tensor %s (%zu bytes)\n", 
+                 tensor->name, tensor->size);
+    }
+    
+    pr_info("🦙 Llamux: Loaded %zu bytes of tensor data\n", total_size);
+    return 0;
+}
+
+/* Print model info */
+void gguf_print_model_info(struct gguf_model *model) {
+    if (!model) return;
+    
+    pr_info("🦙 GGUF Model Information:\n");
     pr_info("  Name: %s\n", model->model_name ?: "Unknown");
     pr_info("  Architecture: %s\n", model->model_arch ?: "Unknown");
-    pr_info("  Context Length: %u\n", model->context_length);
-    pr_info("  Embedding Length: %u\n", model->embedding_length);
+    pr_info("  Vocabulary: %u tokens\n", model->vocab_size);
+    pr_info("  Context: %u tokens\n", model->context_length);
+    pr_info("  Embedding: %u\n", model->embedding_length);
     pr_info("  Layers: %u\n", model->n_layers);
     pr_info("  Heads: %u\n", model->n_heads);
     pr_info("  Tensors: %llu\n", model->tensor_count);
-    pr_info("  Data Size: %zu bytes (%.2f MB)\n", 
-            model->data_size, model->data_size / (1024.0 * 1024.0));
+    pr_info("  Data size: %zu MB\n", model->data_size / (1024 * 1024));
+}
+
+/* Find tensor by name */
+struct gguf_tensor_info *gguf_find_tensor(struct gguf_model *model, const char *name) {
+    u64 i;
+    
+    if (!model || !name || !model->tensors) {
+        return NULL;
+    }
+    
+    for (i = 0; i < model->tensor_count; i++) {
+        if (model->tensors[i].name && 
+            strcmp(model->tensors[i].name, name) == 0) {
+            return &model->tensors[i];
+        }
+    }
+    
+    return NULL;
+}
+
+/* Convert GGUF tensor to GGML tensor */
+struct ggml_tensor *gguf_tensor_to_ggml(struct ggml_context *ctx, 
+                                        struct gguf_tensor_info *info) {
+    struct ggml_tensor *tensor;
+    
+    if (!ctx || !info) {
+        return NULL;
+    }
+    
+    /* Create tensor with appropriate dimensions */
+    tensor = ggml_new_tensor(ctx, info->type, info->n_dims, (int64_t *)info->dims);
+    if (!tensor) {
+        return NULL;
+    }
+    
+    /* Set data pointer if available */
+    if (info->data) {
+        tensor->data = info->data;
+    }
+    
+    return tensor;
+}
+
+/* Calculate tensor size */
+size_t gguf_tensor_size(enum ggml_type type, int64_t n_elements) {
+    switch (type) {
+        case GGML_TYPE_F32:
+            return n_elements * sizeof(float);
+        case GGML_TYPE_F16:
+            return n_elements * sizeof(uint16_t);
+        case GGML_TYPE_Q4_0:
+            return (n_elements / 32) * 18;
+        case GGML_TYPE_Q4_K:
+            return (n_elements / 256) * 144;
+        case GGML_TYPE_Q5_K:
+            return (n_elements / 256) * 176;
+        case GGML_TYPE_Q6_K:
+            return (n_elements / 256) * 210;
+        case GGML_TYPE_Q8_K:
+            return (n_elements / 256) * 292;
+        default:
+            pr_warn("🦙 Llamux: Unknown tensor type %d\n", type);
+            return 0;
+    }
 }
