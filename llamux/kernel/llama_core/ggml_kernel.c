@@ -19,8 +19,7 @@
 #include "weight_cache.h"
 #include "quantize.h"
 #include "ggml_simd.h"
-#include "quantize.h"
-#include "ggml_simd.h"
+#include "ggml_optimize.h"
 
 /* Math functions for kernel space - simple approximations */
 static inline float kernel_expf(float x) {
@@ -998,10 +997,26 @@ EXPORT_SYMBOL_GPL(ggml_set_weight_cache);
 
 
 /* Quantized matrix multiplication stub */
+/* Forward declaration of fast implementation */
+void ggml_compute_forward_mul_mat_q4k_fast(
+    const struct ggml_tensor *src0,
+    const struct ggml_tensor *src1,
+    struct ggml_tensor *dst);
+
 void ggml_compute_forward_mul_mat_q4_0_f32(
     const struct ggml_tensor *src0,
     const struct ggml_tensor *src1,
     struct ggml_tensor *dst) {
+    
+    /* Use fast path for Q4_K - disabled for now */
+    if (0 && src0->type == GGML_TYPE_Q4_K) {
+        extern void ggml_compute_forward_mul_mat_q4k_fast(
+            const struct ggml_tensor *src0,
+            const struct ggml_tensor *src1,
+            struct ggml_tensor *dst);
+        ggml_compute_forward_mul_mat_q4k_fast(src0, src1, dst);
+        return;
+    }
     
     /* This handles both Q4_0 and Q4_K for now */
     const int64_t ne00 = src0->ne[0];
@@ -1095,8 +1110,9 @@ void ggml_compute_forward_mul_mat_q4_0_f32(
                 kernel_fpu_begin();
             }
             
-            if (ne01 > 1000 && i > 0 && (i % 1000) == 0) {
-                pr_info("🦙 GGML: MulMat progress: %lld/%lld rows\n", i, ne01);
+            if (ne01 > 100 && i > 0 && (i % 100) == 0) {
+                pr_info("🦙 GGML: MulMat progress: %lld/%lld rows (%.1f%%)\n", 
+                        i, ne01, (float)i * 100.0f / ne01);
             }
             
             const void *row_quant = (char *)src0->data + i * src0->nb[1];

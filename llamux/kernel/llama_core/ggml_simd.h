@@ -47,16 +47,29 @@ static inline float ggml_vec_dot_f32_avx2(const float *x, const float *y, int n)
 
 #else
 
-/* Fallback scalar implementation */
+/* Optimized scalar implementation with loop unrolling */
 static inline float ggml_vec_dot_f32_scalar(const float *x, const float *y, int n) {
-    float sum = 0.0f;
+    float sum0 = 0.0f, sum1 = 0.0f, sum2 = 0.0f, sum3 = 0.0f;
     int i;
     
-    for (i = 0; i < n; i++) {
-        sum += x[i] * y[i];
+    /* Unroll by 8 for better performance */
+    for (i = 0; i < n - 7; i += 8) {
+        sum0 += x[i] * y[i];
+        sum1 += x[i+1] * y[i+1];
+        sum2 += x[i+2] * y[i+2];
+        sum3 += x[i+3] * y[i+3];
+        sum0 += x[i+4] * y[i+4];
+        sum1 += x[i+5] * y[i+5];
+        sum2 += x[i+6] * y[i+6];
+        sum3 += x[i+7] * y[i+7];
     }
     
-    return sum;
+    /* Handle remaining elements */
+    for (; i < n; i++) {
+        sum0 += x[i] * y[i];
+    }
+    
+    return sum0 + sum1 + sum2 + sum3;
 }
 
 #define ggml_vec_dot_f32_avx2 ggml_vec_dot_f32_scalar

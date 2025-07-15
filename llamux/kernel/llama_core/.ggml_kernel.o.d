@@ -491,4 +491,5 @@ ggml_kernel.o: /root/Llamux/llamux/kernel/llama_core/ggml_kernel.c \
  /root/Llamux/llamux/kernel/llama_core/gguf_parser.h \
  /root/Llamux/llamux/kernel/llama_core/weight_cache.h \
  /root/Llamux/llamux/kernel/llama_core/quantize.h \
- /root/Llamux/llamux/kernel/llama_core/ggml_simd.h
+ /root/Llamux/llamux/kernel/llama_core/ggml_simd.h \
+ /root/Llamux/llamux/kernel/llama_core/ggml_optimize.h
