@@ -823,14 +823,40 @@ void ggml_compute_forward(struct ggml_tensor *tensor) {
                     kernel_fpu_end();
                 } else if (tensor->src0->type == GGML_TYPE_Q4_K) {
                     /* Quantized embeddings - need to dequantize */
-                    pr_info("🦙 GGML: Dequantizing embeddings for %lld tokens\n", n);
+                    pr_info("🦙 GGML: Dequantizing embeddings for %lld tokens, src data=%p\n", n, tensor->src0->data);
+                    
+                    /* Debug: print token indices */
+                    pr_info("🦙 GGML: Token indices:");
+                    for (int64_t j = 0; j < min(n, 10); j++) {
+                        pr_cont(" %d", indices[j]);
+                    }
+                    pr_cont("\n");
                     
                     for (int64_t i = 0; i < n; i++) {
                         int32_t idx = indices[i];
                         if (idx >= 0 && idx < tensor->src0->ne[1]) {
                             /* Calculate offset in quantized data */
-                            size_t row_size = gguf_tensor_size(tensor->src0->type, ne0);
+                            /* For embeddings, ne0 is embedding dim, and we need the size of one embedding */
+                            size_t row_size;
+                            if (tensor->src0->type == GGML_TYPE_Q4_K) {
+                                /* Q4_K: each row has ne0/256 blocks of 144 bytes each */
+                                row_size = (ne0 / 256) * 144;
+                            } else {
+                                row_size = gguf_tensor_size(tensor->src0->type, ne0);
+                            }
                             const void *src_row = (uint8_t *)tensor->src0->data + idx * row_size;
+                            
+                            /* Debug first token */
+                            if (i == 0) {
+                                uint8_t *data = (uint8_t *)src_row;
+                                pr_info("🦙 GGML: GET_ROWS: ne0=%lld, row_size=%zu, idx=%d, offset=%zu\n",
+                                        ne0, row_size, idx, idx * row_size);
+                                pr_info("🦙 GGML: src0->data=%p, src_row=%p\n", 
+                                        tensor->src0->data, src_row);
+                                pr_info("🦙 GGML: Token %lld (idx=%d) first 16 bytes: %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x\n",
+                                        i, idx, data[0], data[1], data[2], data[3], data[4], data[5], data[6], data[7],
+                                        data[8], data[9], data[10], data[11], data[12], data[13], data[14], data[15]);
+                            }
                             
                             /* Dequantize this row */
                             dequantize_row(src_row, dst + i * ne0, ne0, tensor->src0->type);
@@ -865,6 +891,7 @@ void ggml_graph_compute(struct ggml_context *ctx, struct ggml_cgraph *gf) {
     if (!ctx || !gf) return;
     
     pr_info("🦙 GGML: Computing graph with %d nodes\n", gf->n_nodes);
+    pr_info("🦙 GGML: Context mem_used=%zu, mem_size=%zu\n", ctx->mem_used, ctx->mem_size);
     pr_info("🦙 GGML: Starting node processing loop...\n");
     
     /* Process all nodes in order (they're already topologically sorted) */
@@ -880,6 +907,11 @@ void ggml_graph_compute(struct ggml_context *ctx, struct ggml_cgraph *gf) {
         }
         
         if (node && node->op != GGML_OP_NONE) {
+            /* Debug first few and last operations */
+            if (i < 5 || i >= max_nodes - 5) {
+                pr_info("🦙 GGML: Node %d: op=%d, shape=[%lld,%lld,%lld,%lld]\n", 
+                        i, node->op, node->ne[0], node->ne[1], node->ne[2], node->ne[3]);
+            }
             /* Allocate output buffer if needed */
             if (!node->data) {
                 size_t size = ggml_element_size(node->type);

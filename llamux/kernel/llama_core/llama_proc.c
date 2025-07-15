@@ -75,7 +75,7 @@ static ssize_t llamux_prompt_write(struct file *file, const char __user *buffer,
     /* Wake up the inference thread */
     wake_up(&llama_state.inference_waitq);
     
-    pr_info("🦙 Llamux: Received prompt: %s\n", prompt_buffer);
+    pr_info("🦙 Llamux: Received prompt: %s (request_pending set to 1)\n", prompt_buffer);
     
     return count;
 }

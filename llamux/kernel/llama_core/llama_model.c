@@ -69,6 +69,21 @@ struct llama_model *llama_model_create_from_gguf(struct ggml_context *ctx, struc
         }
         pr_info("🦙 Llama: Token embeddings created: %p, dims: %lld x %lld\n", 
                 model->tok_embeddings, tok_embd_gguf->dims[0], tok_embd_gguf->dims[1]);
+        
+        /* Debug: Check if embedding data is valid */
+        if (model->tok_embeddings->data) {
+            uint8_t *data = (uint8_t *)model->tok_embeddings->data;
+            int non_zero = 0;
+            for (int i = 0; i < min(1000, tok_embd_gguf->size); i++) {
+                if (data[i] != 0) {
+                    non_zero = 1;
+                    break;
+                }
+            }
+            pr_info("🦙 Llama: Embeddings data check: %s (checked %zu bytes)\n", 
+                    non_zero ? "contains non-zero values" : "ALL ZEROS!", 
+                    (size_t)min(1000, tok_embd_gguf->size));
+        }
     } else {
         pr_err("🦙 Llama: Token embeddings not found - required for real model!\n");
         kfree(model->layers);
@@ -808,8 +823,9 @@ int llama_eval(struct llama_state *state,
         /* Check first few values before copying */
         float *output_data = (float *)cur->data;
         kernel_fpu_begin();
-        pr_info("🦙 Llama: Output tensor first 5 values: %.3f %.3f %.3f %.3f %.3f\n",
-                output_data[0], output_data[1], output_data[2], output_data[3], output_data[4]);
+        pr_info("🦙 Llama: Output tensor first 10 values: %.6f %.6f %.6f %.6f %.6f %.6f %.6f %.6f %.6f %.6f\n",
+                output_data[0], output_data[1], output_data[2], output_data[3], output_data[4],
+                output_data[5], output_data[6], output_data[7], output_data[8], output_data[9]);
         
         /* Check if output tensor is all zeros */
         int output_all_zero = 1;
@@ -907,7 +923,11 @@ int llama_generate(struct llama_state *state,
     ktime_t start_time, end_time;
     s64 elapsed_ms;
     
+    pr_info("🦙 Llama: === llama_generate START === prompt='%s', max_tokens=%d\n", 
+            prompt, max_tokens);
+    
     if (!state || !prompt || !output || max_length <= 0) {
+        pr_err("🦙 Llama: Invalid parameters to llama_generate\n");
         return -EINVAL;
     }
     

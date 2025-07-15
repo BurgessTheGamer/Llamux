@@ -272,8 +272,12 @@ static int llama_inference_thread(void *data)
                                 kthread_should_stop());
         
         if (kthread_should_stop()) {
+            pr_info("🦙 Llamux: Inference thread stopping\n");
             break;
         }
+        
+        pr_info("🦙 Llamux: Inference thread woke up, request_pending=%d\n",
+                atomic_read(&llama_state.request_pending));
         
         if (atomic_read(&llama_state.request_pending)) {
             mutex_lock(&llama_state.lock);

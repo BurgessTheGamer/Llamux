@@ -530,6 +530,16 @@ int gguf_load_tensor_data(const void *file_data, size_t file_size, struct gguf_m
         tensor->data = mem_ptr + total_size;
         total_size += tensor->size;
         
+        /* Debug: Check token embeddings specifically */
+        if (strcmp(tensor->name, "token_embd.weight") == 0) {
+            uint8_t *data = (uint8_t *)tensor->data;
+            pr_info("🦙 Llamux: token_embd.weight loaded at %p, size=%zu\n", 
+                    tensor->data, tensor->size);
+            pr_info("🦙 Llamux: First 16 bytes: %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x\n",
+                    data[0], data[1], data[2], data[3], data[4], data[5], data[6], data[7],
+                    data[8], data[9], data[10], data[11], data[12], data[13], data[14], data[15]);
+        }
+        
         pr_debug("🦙 Llamux: Loaded tensor %s (%zu bytes)\n", 
                  tensor->name, tensor->size);
     }
@@ -602,8 +612,14 @@ struct ggml_tensor *gguf_tensor_to_ggml(struct ggml_context *ctx,
     tensor->n_dims = info->n_dims;
     for (int i = 0; i < GGML_MAX_DIMS; i++) {
         tensor->ne[i] = i < info->n_dims ? info->dims[i] : 1;
-        tensor->nb[i] = i == 0 ? ggml_type_size(info->type) : 
-                        tensor->nb[i-1] * tensor->ne[i-1];
+        if (i == 0) {
+            tensor->nb[i] = ggml_type_size(info->type);
+        } else if (i == 1 && info->type == GGML_TYPE_Q4_K) {
+            /* For Q4_K, each row is ne[0]/256 blocks of 144 bytes */
+            tensor->nb[i] = (tensor->ne[0] / 256) * 144;
+        } else {
+            tensor->nb[i] = tensor->nb[i-1] * tensor->ne[i-1];
+        }
     }
     
     /* Point to existing data */
@@ -617,6 +633,14 @@ struct ggml_tensor *gguf_tensor_to_ggml(struct ggml_context *ctx,
     
     pr_info("🦙 GGUF: Created view tensor type=%d, dims=[%lld,%lld], data=%p\n",
             info->type, tensor->ne[0], tensor->ne[1], info->data);
+    
+    /* Debug token embeddings */
+    if (strcmp(info->name, "token_embd.weight") == 0) {
+        uint8_t *data = (uint8_t *)info->data;
+        pr_info("🦙 GGUF: token_embd view data at %p, first 16 bytes: %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x\n",
+                info->data, data[0], data[1], data[2], data[3], data[4], data[5], data[6], data[7],
+                data[8], data[9], data[10], data[11], data[12], data[13], data[14], data[15]);
+    }
     
     return tensor;
 }
