@@ -1,0 +1,37 @@
+#!/bin/sh
+
+# Mount essential filesystems
+/bin/mount -t proc none /proc
+/bin/mount -t sysfs none /sys
+/bin/mount -t devtmpfs none /dev
+
+echo ""
+echo "🦙 Welcome to Llamux Container!"
+echo "=============================="
+echo ""
+echo "This is running in User Mode Linux"
+echo "with vmalloc=2048M already set!"
+echo ""
+
+# Show kernel info
+echo "Kernel: $(uname -r)"
+echo "vmalloc parameter: $(cat /proc/cmdline | grep -o 'vmalloc=[^ ]*' || echo 'default')"
+echo ""
+
+# Try to build and load module
+cd /root/llamux/llama_core
+if [ -f llama_core.ko ]; then
+    echo "Loading Llamux module..."
+    if insmod llama_core.ko 2>/dev/null; then
+        echo "✅ Module loaded!"
+        lsmod | grep llama
+        dmesg | tail -10
+    else
+        echo "❌ Module load failed (expected in UML)"
+        echo "But the environment is ready for testing!"
+    fi
+fi
+
+echo ""
+echo "Container shell ready. Type 'exit' to quit."
+/bin/sh

@@ -1,0 +1,5 @@
+linux-upstream (6.1.140-1) bookworm; urgency=low
+
+  * Custom built Linux kernel.
+
+ -- root <root@Debian-bookworm-latest-amd64-base>  Tue, 15 Jul 2025 08:47:06 +0200

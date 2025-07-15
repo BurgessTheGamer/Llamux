@@ -1,247 +1,490 @@
-ggml_kernel.o: /root/Idea/llamux/kernel/llama_core/ggml_kernel.c \
- include/linux/compiler-version.h include/linux/kconfig.h \
- include/generated/autoconf.h include/linux/compiler_types.h \
- include/linux/compiler_attributes.h include/linux/compiler-gcc.h \
- include/linux/kernel.h include/linux/stdarg.h include/linux/align.h \
- include/linux/const.h include/vdso/const.h include/uapi/linux/const.h \
- include/linux/array_size.h include/linux/compiler.h \
- include/linux/compiler_types.h arch/x86/include/generated/asm/rwonce.h \
- include/asm-generic/rwonce.h include/linux/kasan-checks.h \
- include/linux/types.h include/uapi/linux/types.h \
+ggml_kernel.o: /root/Llamux/llamux/kernel/llama_core/ggml_kernel.c \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/compiler-version.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/kconfig.h \
+ include/generated/autoconf.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/compiler_types.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/compiler_attributes.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/compiler-gcc.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/kernel.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/stdarg.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/align.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/const.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/vdso/const.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/uapi/linux/const.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/limits.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/uapi/linux/limits.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/types.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/uapi/linux/types.h \
  arch/x86/include/generated/uapi/asm/types.h \
- include/uapi/asm-generic/types.h include/asm-generic/int-ll64.h \
- include/uapi/asm-generic/int-ll64.h \
- arch/x86/include/uapi/asm/bitsperlong.h \
- include/asm-generic/bitsperlong.h include/uapi/asm-generic/bitsperlong.h \
- include/uapi/linux/posix_types.h include/linux/stddef.h \
- include/uapi/linux/stddef.h arch/x86/include/asm/posix_types.h \
- arch/x86/include/uapi/asm/posix_types_64.h \
- include/uapi/asm-generic/posix_types.h include/linux/kcsan-checks.h \
- include/linux/limits.h include/uapi/linux/limits.h include/vdso/limits.h \
- include/linux/linkage.h include/linux/stringify.h include/linux/export.h \
- arch/x86/include/asm/linkage.h arch/x86/include/asm/ibt.h \
- include/linux/container_of.h include/linux/build_bug.h \
- include/linux/bitops.h include/linux/bits.h include/vdso/bits.h \
- include/linux/typecheck.h include/uapi/linux/kernel.h \
- include/uapi/linux/sysinfo.h \
- include/asm-generic/bitops/generic-non-atomic.h \
- arch/x86/include/asm/barrier.h arch/x86/include/asm/alternative.h \
- arch/x86/include/asm/asm.h arch/x86/include/asm/extable_fixup_types.h \
- arch/x86/include/asm/nops.h include/asm-generic/barrier.h \
- arch/x86/include/asm/bitops.h arch/x86/include/asm/rmwcc.h \
- include/linux/args.h include/asm-generic/bitops/sched.h \
- arch/x86/include/asm/arch_hweight.h arch/x86/include/asm/cpufeatures.h \
- arch/x86/include/asm/required-features.h \
- arch/x86/include/asm/disabled-features.h \
- include/asm-generic/bitops/const_hweight.h \
- include/asm-generic/bitops/instrumented-atomic.h \
- include/linux/instrumented.h include/linux/kmsan-checks.h \
- include/asm-generic/bitops/instrumented-non-atomic.h \
- include/asm-generic/bitops/instrumented-lock.h \
- include/asm-generic/bitops/le.h arch/x86/include/uapi/asm/byteorder.h \
- include/linux/byteorder/little_endian.h \
- include/uapi/linux/byteorder/little_endian.h include/linux/swab.h \
- include/uapi/linux/swab.h arch/x86/include/uapi/asm/swab.h \
- include/linux/byteorder/generic.h \
- include/asm-generic/bitops/ext2-atomic-setbit.h include/linux/hex.h \
- include/linux/kstrtox.h include/linux/log2.h include/linux/math.h \
- arch/x86/include/asm/div64.h include/asm-generic/div64.h \
- include/linux/minmax.h include/linux/panic.h include/linux/printk.h \
- include/linux/init.h include/linux/kern_levels.h \
- include/linux/ratelimit_types.h include/uapi/linux/param.h \
- arch/x86/include/generated/uapi/asm/param.h include/asm-generic/param.h \
- include/uapi/asm-generic/param.h include/linux/spinlock_types_raw.h \
- arch/x86/include/asm/spinlock_types.h \
- include/asm-generic/qspinlock_types.h \
- include/asm-generic/qrwlock_types.h include/linux/lockdep_types.h \
- include/linux/once_lite.h include/linux/dynamic_debug.h \
- include/linux/jump_label.h arch/x86/include/asm/jump_label.h \
- include/linux/sprintf.h include/linux/static_call_types.h \
- include/linux/instruction_pointer.h include/linux/slab.h \
- include/linux/cache.h arch/x86/include/asm/cache.h include/linux/gfp.h \
- include/linux/gfp_types.h include/linux/mmzone.h \
- include/linux/spinlock.h include/linux/preempt.h include/linux/cleanup.h \
- arch/x86/include/asm/preempt.h arch/x86/include/asm/percpu.h \
- include/asm-generic/percpu.h include/linux/threads.h \
- include/linux/percpu-defs.h arch/x86/include/asm/current.h \
- include/linux/irqflags.h include/linux/irqflags_types.h \
- arch/x86/include/asm/irqflags.h arch/x86/include/asm/processor-flags.h \
- arch/x86/include/uapi/asm/processor-flags.h include/linux/mem_encrypt.h \
- arch/x86/include/asm/mem_encrypt.h include/linux/cc_platform.h \
- arch/x86/include/asm/nospec-branch.h include/linux/static_key.h \
- include/linux/objtool.h include/linux/objtool_types.h \
- arch/x86/include/asm/msr-index.h arch/x86/include/asm/unwind_hints.h \
- arch/x86/include/asm/orc_types.h arch/x86/include/asm/asm-offsets.h \
- include/generated/asm-offsets.h arch/x86/include/asm/GEN-for-each-reg.h \
- arch/x86/include/asm/segment.h arch/x86/include/asm/paravirt.h \
- arch/x86/include/asm/paravirt_types.h arch/x86/include/asm/desc_defs.h \
- arch/x86/include/asm/pgtable_types.h arch/x86/include/asm/page_types.h \
- arch/x86/include/asm/page_64_types.h arch/x86/include/asm/kaslr.h \
- arch/x86/include/asm/pgtable_64_types.h arch/x86/include/asm/sparsemem.h \
- include/linux/bug.h arch/x86/include/asm/bug.h \
- include/linux/instrumentation.h include/asm-generic/bug.h \
- include/linux/cpumask.h include/linux/bitmap.h include/linux/errno.h \
- include/uapi/linux/errno.h arch/x86/include/generated/uapi/asm/errno.h \
- include/uapi/asm-generic/errno.h include/uapi/asm-generic/errno-base.h \
- include/linux/find.h include/linux/string.h include/linux/err.h \
- include/linux/overflow.h include/uapi/linux/string.h \
- arch/x86/include/asm/string.h arch/x86/include/asm/string_64.h \
- include/linux/fortify-string.h include/linux/bitmap-str.h \
- include/linux/atomic.h arch/x86/include/asm/atomic.h \
- arch/x86/include/asm/cmpxchg.h arch/x86/include/asm/cmpxchg_64.h \
- arch/x86/include/asm/atomic64_64.h \
- include/linux/atomic/atomic-arch-fallback.h \
- include/linux/atomic/atomic-long.h \
- include/linux/atomic/atomic-instrumented.h include/linux/numa.h \
- arch/x86/include/asm/frame.h include/linux/thread_info.h \
- include/linux/restart_block.h arch/x86/include/asm/thread_info.h \
- arch/x86/include/asm/page.h arch/x86/include/asm/page_64.h \
- include/linux/range.h include/asm-generic/memory_model.h \
- include/linux/pfn.h include/asm-generic/getorder.h \
- arch/x86/include/asm/cpufeature.h arch/x86/include/asm/processor.h \
- arch/x86/include/asm/math_emu.h arch/x86/include/asm/ptrace.h \
- arch/x86/include/uapi/asm/ptrace.h \
- arch/x86/include/uapi/asm/ptrace-abi.h arch/x86/include/asm/proto.h \
- arch/x86/include/uapi/asm/ldt.h arch/x86/include/uapi/asm/sigcontext.h \
- arch/x86/include/asm/cpuid.h arch/x86/include/asm/msr.h \
- arch/x86/include/asm/msr-index.h arch/x86/include/asm/cpumask.h \
- arch/x86/include/uapi/asm/msr.h include/uapi/linux/ioctl.h \
- arch/x86/include/generated/uapi/asm/ioctl.h include/asm-generic/ioctl.h \
- include/uapi/asm-generic/ioctl.h arch/x86/include/asm/shared/msr.h \
- include/linux/tracepoint-defs.h arch/x86/include/asm/special_insns.h \
- arch/x86/include/asm/fpu/types.h arch/x86/include/asm/vmxfeatures.h \
- arch/x86/include/asm/vdso/processor.h arch/x86/include/asm/shstk.h \
- include/linux/personality.h include/uapi/linux/personality.h \
- include/linux/math64.h include/vdso/math64.h include/linux/bottom_half.h \
- include/linux/lockdep.h include/linux/smp.h include/linux/list.h \
- include/linux/poison.h include/linux/smp_types.h include/linux/llist.h \
- arch/x86/include/asm/smp.h arch/x86/include/generated/asm/mmiowb.h \
- include/asm-generic/mmiowb.h include/linux/spinlock_types.h \
- include/linux/rwlock_types.h arch/x86/include/asm/spinlock.h \
- arch/x86/include/asm/qspinlock.h include/asm-generic/qspinlock.h \
- arch/x86/include/asm/qrwlock.h include/asm-generic/qrwlock.h \
- include/linux/rwlock.h include/linux/spinlock_api_smp.h \
- include/linux/rwlock_api_smp.h include/linux/list_nulls.h \
- include/linux/wait.h include/linux/seqlock.h include/linux/mutex.h \
- include/linux/osq_lock.h include/linux/debug_locks.h \
- include/linux/mutex_types.h include/linux/seqlock_types.h \
- include/linux/nodemask.h include/linux/nodemask_types.h \
- include/linux/random.h include/uapi/linux/random.h include/linux/irqnr.h \
- include/uapi/linux/irqnr.h include/linux/prandom.h include/linux/once.h \
- include/linux/pageblock-flags.h include/linux/page-flags-layout.h \
- include/generated/bounds.h include/linux/mm_types.h \
- include/linux/mm_types_task.h arch/x86/include/asm/tlbbatch.h \
- include/linux/auxvec.h include/uapi/linux/auxvec.h \
- arch/x86/include/uapi/asm/auxvec.h include/linux/kref.h \
- include/linux/refcount.h include/linux/refcount_types.h \
- include/linux/rbtree.h include/linux/rbtree_types.h \
- include/linux/rcupdate.h include/linux/context_tracking_irq.h \
- include/linux/rcutree.h include/linux/maple_tree.h include/linux/rwsem.h \
- include/linux/completion.h include/linux/swait.h include/linux/uprobes.h \
- arch/x86/include/asm/uprobes.h include/linux/notifier.h \
- include/linux/srcu.h include/linux/workqueue.h include/linux/timer.h \
- include/linux/ktime.h include/linux/jiffies.h include/linux/time.h \
- include/linux/time64.h include/vdso/time64.h include/uapi/linux/time.h \
- include/uapi/linux/time_types.h include/linux/time32.h \
- include/linux/timex.h include/uapi/linux/timex.h \
- arch/x86/include/asm/timex.h arch/x86/include/asm/tsc.h \
- include/vdso/time32.h include/vdso/time.h include/vdso/jiffies.h \
- include/generated/timeconst.h include/vdso/ktime.h \
- include/linux/timekeeping.h include/linux/clocksource_ids.h \
- include/linux/debugobjects.h include/linux/timer_types.h \
- include/linux/workqueue_types.h include/linux/rcu_segcblist.h \
- include/linux/srcutree.h include/linux/rcu_node_tree.h \
- include/linux/percpu_counter.h include/linux/percpu.h \
- include/linux/mmdebug.h arch/x86/include/asm/mmu.h \
- include/linux/page-flags.h include/linux/local_lock.h \
- include/linux/local_lock_internal.h include/linux/zswap.h \
- include/linux/memory_hotplug.h arch/x86/include/asm/mmzone.h \
- arch/x86/include/asm/mmzone_64.h include/linux/topology.h \
- include/linux/arch_topology.h arch/x86/include/asm/topology.h \
- arch/x86/include/asm/mpspec.h arch/x86/include/asm/mpspec_def.h \
- arch/x86/include/asm/x86_init.h arch/x86/include/uapi/asm/bootparam.h \
- include/linux/screen_info.h include/uapi/linux/screen_info.h \
- include/linux/apm_bios.h include/uapi/linux/apm_bios.h \
- include/linux/edd.h include/uapi/linux/edd.h arch/x86/include/asm/ist.h \
- arch/x86/include/uapi/asm/ist.h include/video/edid.h \
- include/uapi/video/edid.h arch/x86/include/asm/apicdef.h \
- include/asm-generic/topology.h include/linux/cpu_smt.h \
- include/linux/percpu-refcount.h include/linux/hash.h \
- include/linux/kasan.h include/linux/kasan-enabled.h \
- include/linux/kasan-tags.h include/linux/vmalloc.h \
- arch/x86/include/asm/vmalloc.h arch/x86/include/asm/pgtable_areas.h \
- include/linux/mm.h include/linux/mmap_lock.h \
- include/linux/bit_spinlock.h include/linux/shrinker.h \
- include/linux/resource.h include/uapi/linux/resource.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/uapi/asm-generic/types.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/asm-generic/int-ll64.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/uapi/asm-generic/int-ll64.h \
+ /usr/src/linux-headers-6.1.0-37-common/arch/x86/include/uapi/asm/bitsperlong.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/asm-generic/bitsperlong.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/uapi/asm-generic/bitsperlong.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/uapi/linux/posix_types.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/stddef.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/uapi/linux/stddef.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/compiler_types.h \
+ /usr/src/linux-headers-6.1.0-37-common/arch/x86/include/asm/posix_types.h \
+ /usr/src/linux-headers-6.1.0-37-common/arch/x86/include/uapi/asm/posix_types_64.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/uapi/asm-generic/posix_types.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/vdso/limits.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/linkage.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/stringify.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/export.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/compiler.h \
+ arch/x86/include/generated/asm/rwonce.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/asm-generic/rwonce.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/kasan-checks.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/kcsan-checks.h \
+ /usr/src/linux-headers-6.1.0-37-common/arch/x86/include/asm/linkage.h \
+ /usr/src/linux-headers-6.1.0-37-common/arch/x86/include/asm/ibt.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/container_of.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/build_bug.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/err.h \
+ arch/x86/include/generated/uapi/asm/errno.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/uapi/asm-generic/errno.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/uapi/asm-generic/errno-base.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/bitops.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/bits.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/vdso/bits.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/typecheck.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/uapi/linux/kernel.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/uapi/linux/sysinfo.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/asm-generic/bitops/generic-non-atomic.h \
+ /usr/src/linux-headers-6.1.0-37-common/arch/x86/include/asm/barrier.h \
+ /usr/src/linux-headers-6.1.0-37-common/arch/x86/include/asm/alternative.h \
+ /usr/src/linux-headers-6.1.0-37-common/arch/x86/include/asm/asm.h \
+ /usr/src/linux-headers-6.1.0-37-common/arch/x86/include/asm/extable_fixup_types.h \
+ /usr/src/linux-headers-6.1.0-37-common/arch/x86/include/asm/bug.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/instrumentation.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/objtool.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/asm-generic/bug.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/once_lite.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/panic.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/printk.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/init.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/kern_levels.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/ratelimit_types.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/uapi/linux/param.h \
+ arch/x86/include/generated/uapi/asm/param.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/asm-generic/param.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/uapi/asm-generic/param.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/spinlock_types_raw.h \
+ /usr/src/linux-headers-6.1.0-37-common/arch/x86/include/asm/spinlock_types.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/asm-generic/qspinlock_types.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/asm-generic/qrwlock_types.h \
+ /usr/src/linux-headers-6.1.0-37-common/arch/x86/include/uapi/asm/byteorder.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/byteorder/little_endian.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/uapi/linux/byteorder/little_endian.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/swab.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/uapi/linux/swab.h \
+ /usr/src/linux-headers-6.1.0-37-common/arch/x86/include/uapi/asm/swab.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/byteorder/generic.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/lockdep_types.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/dynamic_debug.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/jump_label.h \
+ /usr/src/linux-headers-6.1.0-37-common/arch/x86/include/asm/jump_label.h \
+ /usr/src/linux-headers-6.1.0-37-common/arch/x86/include/asm/nops.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/asm-generic/barrier.h \
+ /usr/src/linux-headers-6.1.0-37-common/arch/x86/include/asm/bitops.h \
+ /usr/src/linux-headers-6.1.0-37-common/arch/x86/include/asm/rmwcc.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/asm-generic/bitops/sched.h \
+ /usr/src/linux-headers-6.1.0-37-common/arch/x86/include/asm/arch_hweight.h \
+ /usr/src/linux-headers-6.1.0-37-common/arch/x86/include/asm/cpufeatures.h \
+ /usr/src/linux-headers-6.1.0-37-common/arch/x86/include/asm/required-features.h \
+ /usr/src/linux-headers-6.1.0-37-common/arch/x86/include/asm/disabled-features.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/asm-generic/bitops/const_hweight.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/asm-generic/bitops/instrumented-atomic.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/instrumented.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/kmsan-checks.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/asm-generic/bitops/instrumented-non-atomic.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/asm-generic/bitops/instrumented-lock.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/asm-generic/bitops/le.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/asm-generic/bitops/ext2-atomic-setbit.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/kstrtox.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/log2.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/math.h \
+ /usr/src/linux-headers-6.1.0-37-common/arch/x86/include/asm/div64.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/asm-generic/div64.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/minmax.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/static_call_types.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/instruction_pointer.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/slab.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/cache.h \
+ /usr/src/linux-headers-6.1.0-37-common/arch/x86/include/asm/cache.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/gfp.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/gfp_types.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/mmzone.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/spinlock.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/preempt.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/cleanup.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/list.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/poison.h \
+ /usr/src/linux-headers-6.1.0-37-common/arch/x86/include/asm/preempt.h \
+ /usr/src/linux-headers-6.1.0-37-common/arch/x86/include/asm/percpu.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/asm-generic/percpu.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/threads.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/percpu-defs.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/thread_info.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/bug.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/restart_block.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/time64.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/math64.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/vdso/math64.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/vdso/time64.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/uapi/linux/time.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/uapi/linux/time_types.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/errno.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/uapi/linux/errno.h \
+ /usr/src/linux-headers-6.1.0-37-common/arch/x86/include/asm/current.h \
+ /usr/src/linux-headers-6.1.0-37-common/arch/x86/include/asm/thread_info.h \
+ /usr/src/linux-headers-6.1.0-37-common/arch/x86/include/asm/page.h \
+ /usr/src/linux-headers-6.1.0-37-common/arch/x86/include/asm/page_types.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/mem_encrypt.h \
+ /usr/src/linux-headers-6.1.0-37-common/arch/x86/include/asm/mem_encrypt.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/cc_platform.h \
+ /usr/src/linux-headers-6.1.0-37-common/arch/x86/include/asm/page_64_types.h \
+ /usr/src/linux-headers-6.1.0-37-common/arch/x86/include/asm/kaslr.h \
+ /usr/src/linux-headers-6.1.0-37-common/arch/x86/include/asm/page_64.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/range.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/asm-generic/memory_model.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/pfn.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/asm-generic/getorder.h \
+ /usr/src/linux-headers-6.1.0-37-common/arch/x86/include/asm/cpufeature.h \
+ /usr/src/linux-headers-6.1.0-37-common/arch/x86/include/asm/processor.h \
+ /usr/src/linux-headers-6.1.0-37-common/arch/x86/include/asm/processor-flags.h \
+ /usr/src/linux-headers-6.1.0-37-common/arch/x86/include/uapi/asm/processor-flags.h \
+ /usr/src/linux-headers-6.1.0-37-common/arch/x86/include/asm/math_emu.h \
+ /usr/src/linux-headers-6.1.0-37-common/arch/x86/include/asm/ptrace.h \
+ /usr/src/linux-headers-6.1.0-37-common/arch/x86/include/asm/segment.h \
+ /usr/src/linux-headers-6.1.0-37-common/arch/x86/include/uapi/asm/ptrace.h \
+ /usr/src/linux-headers-6.1.0-37-common/arch/x86/include/uapi/asm/ptrace-abi.h \
+ /usr/src/linux-headers-6.1.0-37-common/arch/x86/include/asm/paravirt_types.h \
+ /usr/src/linux-headers-6.1.0-37-common/arch/x86/include/asm/desc_defs.h \
+ /usr/src/linux-headers-6.1.0-37-common/arch/x86/include/asm/pgtable_types.h \
+ /usr/src/linux-headers-6.1.0-37-common/arch/x86/include/asm/pgtable_64_types.h \
+ /usr/src/linux-headers-6.1.0-37-common/arch/x86/include/asm/sparsemem.h \
+ /usr/src/linux-headers-6.1.0-37-common/arch/x86/include/asm/nospec-branch.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/static_key.h \
+ /usr/src/linux-headers-6.1.0-37-common/arch/x86/include/asm/msr-index.h \
+ /usr/src/linux-headers-6.1.0-37-common/arch/x86/include/asm/unwind_hints.h \
+ /usr/src/linux-headers-6.1.0-37-common/arch/x86/include/asm/orc_types.h \
+ /usr/src/linux-headers-6.1.0-37-common/arch/x86/include/asm/GEN-for-each-reg.h \
+ /usr/src/linux-headers-6.1.0-37-common/arch/x86/include/asm/proto.h \
+ /usr/src/linux-headers-6.1.0-37-common/arch/x86/include/uapi/asm/ldt.h \
+ /usr/src/linux-headers-6.1.0-37-common/arch/x86/include/uapi/asm/sigcontext.h \
+ /usr/src/linux-headers-6.1.0-37-common/arch/x86/include/asm/msr.h \
+ /usr/src/linux-headers-6.1.0-37-common/arch/x86/include/asm/msr-index.h \
+ /usr/src/linux-headers-6.1.0-37-common/arch/x86/include/asm/cpumask.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/cpumask.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/bitmap.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/find.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/string.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/overflow.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/uapi/linux/string.h \
+ /usr/src/linux-headers-6.1.0-37-common/arch/x86/include/asm/string.h \
+ /usr/src/linux-headers-6.1.0-37-common/arch/x86/include/asm/string_64.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/fortify-string.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/atomic.h \
+ /usr/src/linux-headers-6.1.0-37-common/arch/x86/include/asm/atomic.h \
+ /usr/src/linux-headers-6.1.0-37-common/arch/x86/include/asm/cmpxchg.h \
+ /usr/src/linux-headers-6.1.0-37-common/arch/x86/include/asm/cmpxchg_64.h \
+ /usr/src/linux-headers-6.1.0-37-common/arch/x86/include/asm/atomic64_64.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/atomic/atomic-arch-fallback.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/atomic/atomic-long.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/atomic/atomic-instrumented.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/numa.h \
+ /usr/src/linux-headers-6.1.0-37-common/arch/x86/include/uapi/asm/msr.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/uapi/linux/ioctl.h \
+ arch/x86/include/generated/uapi/asm/ioctl.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/asm-generic/ioctl.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/uapi/asm-generic/ioctl.h \
+ /usr/src/linux-headers-6.1.0-37-common/arch/x86/include/asm/shared/msr.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/tracepoint-defs.h \
+ /usr/src/linux-headers-6.1.0-37-common/arch/x86/include/asm/paravirt.h \
+ /usr/src/linux-headers-6.1.0-37-common/arch/x86/include/asm/frame.h \
+ /usr/src/linux-headers-6.1.0-37-common/arch/x86/include/asm/special_insns.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/irqflags.h \
+ /usr/src/linux-headers-6.1.0-37-common/arch/x86/include/asm/irqflags.h \
+ /usr/src/linux-headers-6.1.0-37-common/arch/x86/include/asm/fpu/types.h \
+ /usr/src/linux-headers-6.1.0-37-common/arch/x86/include/asm/vmxfeatures.h \
+ /usr/src/linux-headers-6.1.0-37-common/arch/x86/include/asm/vdso/processor.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/personality.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/uapi/linux/personality.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/bottom_half.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/lockdep.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/smp.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/smp_types.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/llist.h \
+ /usr/src/linux-headers-6.1.0-37-common/arch/x86/include/asm/smp.h \
+ arch/x86/include/generated/asm/mmiowb.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/asm-generic/mmiowb.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/spinlock_types.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/rwlock_types.h \
+ /usr/src/linux-headers-6.1.0-37-common/arch/x86/include/asm/spinlock.h \
+ /usr/src/linux-headers-6.1.0-37-common/arch/x86/include/asm/qspinlock.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/asm-generic/qspinlock.h \
+ /usr/src/linux-headers-6.1.0-37-common/arch/x86/include/asm/qrwlock.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/asm-generic/qrwlock.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/rwlock.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/spinlock_api_smp.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/rwlock_api_smp.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/wait.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/uapi/linux/wait.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/seqlock.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/mutex.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/osq_lock.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/debug_locks.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/nodemask.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/random.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/once.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/uapi/linux/random.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/irqnr.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/uapi/linux/irqnr.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/prandom.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/percpu.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/mmdebug.h \
+ /usr/src/linux-headers-6.1.0-37-common/arch/x86/include/asm/archrandom.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/pageblock-flags.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/page-flags-layout.h \
+ include/generated/bounds.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/mm_types.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/mm_types_task.h \
+ /usr/src/linux-headers-6.1.0-37-common/arch/x86/include/asm/tlbbatch.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/auxvec.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/uapi/linux/auxvec.h \
+ /usr/src/linux-headers-6.1.0-37-common/arch/x86/include/uapi/asm/auxvec.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/kref.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/refcount.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/rbtree.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/rbtree_types.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/rcupdate.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/context_tracking_irq.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/rcutree.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/maple_tree.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/rwsem.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/completion.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/swait.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/uprobes.h \
+ /usr/src/linux-headers-6.1.0-37-common/arch/x86/include/asm/uprobes.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/notifier.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/srcu.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/workqueue.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/timer.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/ktime.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/time.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/time32.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/timex.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/uapi/linux/timex.h \
+ /usr/src/linux-headers-6.1.0-37-common/arch/x86/include/asm/timex.h \
+ /usr/src/linux-headers-6.1.0-37-common/arch/x86/include/asm/tsc.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/vdso/time32.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/vdso/time.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/jiffies.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/vdso/jiffies.h \
+ include/generated/timeconst.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/vdso/ktime.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/timekeeping.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/clocksource_ids.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/debugobjects.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/rcu_segcblist.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/srcutree.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/rcu_node_tree.h \
+ /usr/src/linux-headers-6.1.0-37-common/arch/x86/include/asm/mmu.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/page-flags.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/local_lock.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/local_lock_internal.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/memory_hotplug.h \
+ /usr/src/linux-headers-6.1.0-37-common/arch/x86/include/asm/mmzone.h \
+ /usr/src/linux-headers-6.1.0-37-common/arch/x86/include/asm/mmzone_64.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/topology.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/arch_topology.h \
+ /usr/src/linux-headers-6.1.0-37-common/arch/x86/include/asm/topology.h \
+ /usr/src/linux-headers-6.1.0-37-common/arch/x86/include/asm/mpspec.h \
+ /usr/src/linux-headers-6.1.0-37-common/arch/x86/include/asm/mpspec_def.h \
+ /usr/src/linux-headers-6.1.0-37-common/arch/x86/include/asm/x86_init.h \
+ /usr/src/linux-headers-6.1.0-37-common/arch/x86/include/uapi/asm/bootparam.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/screen_info.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/uapi/linux/screen_info.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/apm_bios.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/uapi/linux/apm_bios.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/edd.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/uapi/linux/edd.h \
+ /usr/src/linux-headers-6.1.0-37-common/arch/x86/include/asm/ist.h \
+ /usr/src/linux-headers-6.1.0-37-common/arch/x86/include/uapi/asm/ist.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/video/edid.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/uapi/video/edid.h \
+ /usr/src/linux-headers-6.1.0-37-common/arch/x86/include/asm/apicdef.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/asm-generic/topology.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/percpu-refcount.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/kasan.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/kasan-enabled.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/vmalloc.h \
+ /usr/src/linux-headers-6.1.0-37-common/arch/x86/include/asm/vmalloc.h \
+ /usr/src/linux-headers-6.1.0-37-common/arch/x86/include/asm/pgtable_areas.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/sched.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/uapi/linux/sched.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/pid.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/rculist.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/sem.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/uapi/linux/sem.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/ipc.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/uidgid.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/highuid.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/rhashtable-types.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/uapi/linux/ipc.h \
+ arch/x86/include/generated/uapi/asm/ipcbuf.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/uapi/asm-generic/ipcbuf.h \
+ /usr/src/linux-headers-6.1.0-37-common/arch/x86/include/uapi/asm/sembuf.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/shm.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/uapi/linux/shm.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/uapi/asm-generic/hugetlb_encode.h \
+ /usr/src/linux-headers-6.1.0-37-common/arch/x86/include/uapi/asm/shmbuf.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/uapi/asm-generic/shmbuf.h \
+ /usr/src/linux-headers-6.1.0-37-common/arch/x86/include/asm/shmparam.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/kmsan_types.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/plist.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/hrtimer.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/hrtimer_defs.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/timerqueue.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/seccomp.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/uapi/linux/seccomp.h \
+ /usr/src/linux-headers-6.1.0-37-common/arch/x86/include/asm/seccomp.h \
+ /usr/src/linux-headers-6.1.0-37-common/arch/x86/include/asm/unistd.h \
+ /usr/src/linux-headers-6.1.0-37-common/arch/x86/include/uapi/asm/unistd.h \
+ arch/x86/include/generated/uapi/asm/unistd_64.h \
+ arch/x86/include/generated/asm/unistd_64_x32.h \
+ arch/x86/include/generated/asm/unistd_32_ia32.h \
+ /usr/src/linux-headers-6.1.0-37-common/arch/x86/include/asm/ia32_unistd.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/asm-generic/seccomp.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/uapi/linux/unistd.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/resource.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/uapi/linux/resource.h \
  arch/x86/include/generated/uapi/asm/resource.h \
- include/asm-generic/resource.h include/uapi/asm-generic/resource.h \
- include/linux/page_ext.h include/linux/stacktrace.h \
- include/linux/stackdepot.h include/linux/page_ref.h \
- include/linux/sizes.h include/linux/sched.h include/uapi/linux/sched.h \
- include/linux/pid_types.h include/linux/sem_types.h include/linux/shm.h \
- arch/x86/include/asm/shmparam.h include/linux/kmsan_types.h \
- include/linux/plist_types.h include/linux/hrtimer_types.h \
- include/linux/timerqueue_types.h include/linux/seccomp_types.h \
- include/linux/latencytop.h include/linux/sched/prio.h \
- include/linux/sched/types.h include/linux/signal_types.h \
- include/uapi/linux/signal.h arch/x86/include/asm/signal.h \
- arch/x86/include/uapi/asm/signal.h \
- include/uapi/asm-generic/signal-defs.h \
- arch/x86/include/uapi/asm/siginfo.h include/uapi/asm-generic/siginfo.h \
- include/linux/syscall_user_dispatch_types.h \
- include/linux/task_io_accounting.h include/linux/posix-timers_types.h \
- include/uapi/linux/rseq.h include/linux/kcsan.h include/linux/rv.h \
- include/linux/livepatch_sched.h include/linux/uidgid_types.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/asm-generic/resource.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/uapi/asm-generic/resource.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/latencytop.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/sched/prio.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/sched/types.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/signal_types.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/uapi/linux/signal.h \
+ /usr/src/linux-headers-6.1.0-37-common/arch/x86/include/asm/signal.h \
+ /usr/src/linux-headers-6.1.0-37-common/arch/x86/include/uapi/asm/signal.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/uapi/asm-generic/signal-defs.h \
+ /usr/src/linux-headers-6.1.0-37-common/arch/x86/include/uapi/asm/siginfo.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/uapi/asm-generic/siginfo.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/syscall_user_dispatch.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/task_io_accounting.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/posix-timers.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/alarmtimer.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/uapi/linux/rseq.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/kcsan.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/rv.h \
  arch/x86/include/generated/asm/kmap_size.h \
- include/asm-generic/kmap_size.h include/linux/pgtable.h \
- arch/x86/include/asm/pgtable.h arch/x86/include/asm/pkru.h \
- arch/x86/include/asm/fpu/api.h arch/x86/include/asm/coco.h \
- include/asm-generic/pgtable_uffd.h include/linux/page_table_check.h \
- arch/x86/include/asm/pgtable_64.h arch/x86/include/asm/fixmap.h \
- arch/x86/include/uapi/asm/vsyscall.h include/asm-generic/fixmap.h \
- arch/x86/include/asm/pgtable-invert.h include/linux/memremap.h \
- include/linux/ioport.h include/linux/huge_mm.h \
- include/linux/sched/coredump.h include/linux/fs.h \
- include/linux/wait_bit.h include/linux/kdev_t.h \
- include/uapi/linux/kdev_t.h include/linux/dcache.h \
- include/linux/rculist.h include/linux/rculist_bl.h \
- include/linux/list_bl.h include/linux/lockref.h \
- include/linux/stringhash.h include/linux/path.h include/linux/stat.h \
- arch/x86/include/uapi/asm/stat.h include/uapi/linux/stat.h \
- include/linux/uidgid.h include/linux/highuid.h include/linux/list_lru.h \
- include/linux/xarray.h include/linux/kconfig.h include/linux/sched/mm.h \
- include/linux/sync_core.h arch/x86/include/asm/sync_core.h \
- include/linux/radix-tree.h include/linux/pid.h \
- include/linux/capability.h include/uapi/linux/capability.h \
- include/linux/semaphore.h include/linux/fcntl.h \
- include/uapi/linux/fcntl.h arch/x86/include/generated/uapi/asm/fcntl.h \
- include/uapi/asm-generic/fcntl.h include/uapi/linux/openat2.h \
- include/linux/migrate_mode.h include/linux/percpu-rwsem.h \
- include/linux/rcuwait.h include/linux/sched/signal.h \
- include/linux/signal.h include/linux/sched/jobctl.h \
- include/linux/sched/task.h include/linux/uaccess.h \
- include/linux/fault-inject-usercopy.h arch/x86/include/asm/uaccess.h \
- arch/x86/include/asm/smap.h arch/x86/include/asm/extable.h \
- arch/x86/include/asm/tlbflush.h include/linux/mmu_notifier.h \
- include/linux/interval_tree.h arch/x86/include/asm/invpcid.h \
- arch/x86/include/asm/pti.h arch/x86/include/asm/uaccess_64.h \
- include/asm-generic/access_ok.h include/linux/cred.h include/linux/key.h \
- include/linux/sysctl.h include/uapi/linux/sysctl.h \
- include/linux/assoc_array.h include/linux/sched/user.h \
- include/linux/ratelimit.h include/linux/posix-timers.h \
- include/linux/alarmtimer.h include/linux/hrtimer.h \
- include/linux/hrtimer_defs.h include/linux/timerqueue.h \
- include/linux/rcu_sync.h include/linux/delayed_call.h \
- include/linux/uuid.h include/linux/errseq.h include/linux/ioprio.h \
- include/linux/sched/rt.h include/linux/iocontext.h \
- include/uapi/linux/ioprio.h include/linux/fs_types.h \
- include/linux/mount.h include/linux/mnt_idmapping.h \
- include/uapi/linux/fs.h include/linux/quota.h \
- include/uapi/linux/dqblk_xfs.h include/linux/dqblk_v1.h \
- include/linux/dqblk_v2.h include/linux/dqblk_qtree.h \
- include/linux/projid.h include/uapi/linux/quota.h include/linux/vmstat.h \
- include/linux/vm_event_item.h \
- /root/Idea/llamux/kernel/llama_core/ggml_kernel.h \
- /root/Idea/llamux/kernel/llama_core/gguf_parser.h \
- /root/Idea/llamux/kernel/llama_core/quantize.h \
- /root/Idea/llamux/kernel/llama_core/ggml_simd.h
+ /usr/src/linux-headers-6.1.0-37-common/include/asm-generic/kmap_size.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/mm.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/mmap_lock.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/bit_spinlock.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/shrinker.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/page_ext.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/stacktrace.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/stackdepot.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/page_ref.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/sizes.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/pgtable.h \
+ /usr/src/linux-headers-6.1.0-37-common/arch/x86/include/asm/pgtable.h \
+ /usr/src/linux-headers-6.1.0-37-common/arch/x86/include/asm/pkru.h \
+ /usr/src/linux-headers-6.1.0-37-common/arch/x86/include/asm/fpu/api.h \
+ /usr/src/linux-headers-6.1.0-37-common/arch/x86/include/asm/coco.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/asm-generic/pgtable_uffd.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/page_table_check.h \
+ /usr/src/linux-headers-6.1.0-37-common/arch/x86/include/asm/pgtable_64.h \
+ /usr/src/linux-headers-6.1.0-37-common/arch/x86/include/asm/fixmap.h \
+ /usr/src/linux-headers-6.1.0-37-common/arch/x86/include/uapi/asm/vsyscall.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/asm-generic/fixmap.h \
+ /usr/src/linux-headers-6.1.0-37-common/arch/x86/include/asm/pgtable-invert.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/memremap.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/ioport.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/huge_mm.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/sched/coredump.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/fs.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/wait_bit.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/kdev_t.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/uapi/linux/kdev_t.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/dcache.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/rculist_bl.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/list_bl.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/lockref.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/stringhash.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/hash.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/path.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/stat.h \
+ /usr/src/linux-headers-6.1.0-37-common/arch/x86/include/uapi/asm/stat.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/uapi/linux/stat.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/list_lru.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/xarray.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/kconfig.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/sched/mm.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/sync_core.h \
+ /usr/src/linux-headers-6.1.0-37-common/arch/x86/include/asm/sync_core.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/ioasid.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/radix-tree.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/capability.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/uapi/linux/capability.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/semaphore.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/fcntl.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/uapi/linux/fcntl.h \
+ arch/x86/include/generated/uapi/asm/fcntl.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/uapi/asm-generic/fcntl.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/uapi/linux/openat2.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/migrate_mode.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/percpu-rwsem.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/rcuwait.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/sched/signal.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/signal.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/sched/jobctl.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/sched/task.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/uaccess.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/fault-inject-usercopy.h \
+ /usr/src/linux-headers-6.1.0-37-common/arch/x86/include/asm/uaccess.h \
+ /usr/src/linux-headers-6.1.0-37-common/arch/x86/include/asm/smap.h \
+ /usr/src/linux-headers-6.1.0-37-common/arch/x86/include/asm/extable.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/asm-generic/access_ok.h \
+ /usr/src/linux-headers-6.1.0-37-common/arch/x86/include/asm/uaccess_64.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/cred.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/key.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/sysctl.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/uapi/linux/sysctl.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/assoc_array.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/sched/user.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/percpu_counter.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/ratelimit.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/rcu_sync.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/delayed_call.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/uuid.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/uapi/linux/uuid.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/errseq.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/ioprio.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/sched/rt.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/iocontext.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/uapi/linux/ioprio.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/fs_types.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/mount.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/mnt_idmapping.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/uapi/linux/fs.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/quota.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/uapi/linux/dqblk_xfs.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/dqblk_v1.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/dqblk_v2.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/dqblk_qtree.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/projid.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/uapi/linux/quota.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/nfs_fs_i.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/vmstat.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/vm_event_item.h \
+ /root/Llamux/llamux/kernel/llama_core/ggml_kernel.h \
+ /root/Llamux/llamux/kernel/llama_core/gguf_parser.h \
+ /root/Llamux/llamux/kernel/llama_core/quantize.h \
+ /root/Llamux/llamux/kernel/llama_core/ggml_simd.h

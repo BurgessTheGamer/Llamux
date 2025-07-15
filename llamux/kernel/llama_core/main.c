@@ -22,6 +22,8 @@
 #include <linux/delay.h>
 #include <linux/firmware.h>
 #include <linux/wait.h>
+#include <linux/file.h>
+#include <linux/namei.h>
 #include "gguf_parser.h"
 #include "memory_reserve.h"
 #include "ggml_kernel.h"
@@ -29,6 +31,8 @@
 
 #define LLAMUX_VERSION "0.1.0-alpha"
 #define MODEL_RESERVED_SIZE (2ULL * 1024 * 1024 * 1024) // 2GB
+#define MODEL_FIRMWARE_PATH "llamux/tinyllama.gguf"  /* Fallback for firmware API */
+#define MODEL_DIRECT_PATH "/lib/firmware/llamux/codellama-13b.gguf"  /* Direct file I/O path */
 
 MODULE_LICENSE("GPL v2");
 MODULE_AUTHOR("Llamux Project");
@@ -169,29 +173,26 @@ static int llama_inference_thread(void *data)
                 pr_info("🦙 Llamux: Processing prompt: %s\n", 
                         llama_state.current_prompt);
                 
-                /* For now, just echo back to test the interface */
+                /* REAL INFERENCE - LET'S GO! */
                 if (llama_state.current_response) {
-                    snprintf(llama_state.current_response, 512,
-                            "🦙 I heard you say: '%s'! AI is thinking in kernel space! 🧠",
-                            llama_state.current_prompt);
-                    pr_info("🦙 Llamux: Response ready!\n");
+                    pr_info("🦙 Llamux: Starting real inference with CodeLlama 13B!\n");
                     
-                    /* TODO: Enable real inference when model is stable
                     int n_generated = llama_generate(
                         llama_state.inference_state,
                         llama_state.current_prompt,
                         llama_state.current_response,
-                        512,
-                        50
+                        512,  /* max response length */
+                        100   /* max tokens to generate */
                     );
                     
                     if (n_generated > 0) {
-                        pr_info("🦙 Llamux: Generated %d tokens\n", n_generated);
+                        pr_info("🦙 Llamux: Generated %d tokens! Response: %s\n", 
+                                n_generated, llama_state.current_response);
                     } else {
+                        pr_err("🦙 Llamux: Inference failed! Error code: %d\n", n_generated);
                         snprintf(llama_state.current_response, 256,
-                                "🦙 Error: Failed to generate response");
+                                "🦙 Error: Failed to generate response (code: %d)", n_generated);
                     }
-                    */
                 }
                 
                 atomic_set(&llama_state.request_pending, 0);
@@ -210,10 +211,13 @@ static int llama_inference_thread(void *data)
  */
 static int llama_load_model(void)
 {
-    const struct firmware *fw;
+    struct file *filp = NULL;
+    loff_t file_size;
+    loff_t pos = 0;
+    void *model_data = NULL;
     int ret;
     
-    pr_info("🦙 Llamux: Loading TinyLlama model...\n");
+    pr_info("🦙 Llamux: Loading CodeLlama 13B model using direct file I/O...\n");
     
     /* Map reserved memory if available */
     if (llamux_mem_region.reserved) {
@@ -226,7 +230,8 @@ static int llama_load_model(void)
     } else {
         pr_warn("🦙 Llamux: No reserved memory, using vmalloc fallback\n");
         /* Fallback to vmalloc for testing */
-        size_t alloc_size = 64 * 1024 * 1024; /* 64MB for testing */
+        /* CodeLlama 13B Q4_K_M: ~7.3GB + KV cache + GGML overhead */
+        size_t alloc_size = (size_t)30720 * 1024 * 1024; /* 30GB total - let's go big! */
         pr_info("🦙 Llamux: Attempting to allocate %zu MB with vmalloc\n", alloc_size / (1024 * 1024));
         llama_state.model_memory = vmalloc(alloc_size);
         if (!llama_state.model_memory) {
@@ -238,168 +243,202 @@ static int llama_load_model(void)
         llama_state.model_size = alloc_size;
     }
     
-    /* Skip firmware loading for now - use mock model */
-    ret = -ENOENT;
-    fw = NULL;
-    if (ret == 0) {
-        pr_info("🦙 Llamux: Found model file, size: %zu MB\n", fw->size / (1024*1024));
+    /* Open model file directly */
+    filp = filp_open(MODEL_DIRECT_PATH, O_RDONLY | O_LARGEFILE, 0);
+    if (IS_ERR(filp)) {
+        pr_err("🦙 Llamux: Failed to open model file %s: %ld\n", 
+               MODEL_DIRECT_PATH, PTR_ERR(filp));
+        ret = PTR_ERR(filp);
+        goto err_free_memory;
+    }
+    
+    /* Get file size */
+    file_size = i_size_read(file_inode(filp));
+    pr_info("🦙 Llamux: Model file size: %lld MB\n", file_size / (1024*1024));
+    
+    /* Allocate temporary buffer for model data */
+    model_data = vmalloc(file_size);
+    if (!model_data) {
+        pr_err("🦙 Llamux: Failed to allocate buffer for model data (%lld bytes)\n", file_size);
+        ret = -ENOMEM;
+        goto err_close_file;
+    }
+    
+    /* Read file in chunks to handle large files */
+    pr_info("🦙 Llamux: Reading model file into memory in chunks...\n");
+    {
+        size_t chunk_size = 512 * 1024 * 1024; /* 512MB chunks */
+        size_t bytes_read = 0;
         
-        /* Parse GGUF header */
-        if (fw->size < sizeof(struct gguf_header)) {
-            pr_err("🦙 Llamux: Model file too small\n");
-            release_firmware(fw);
-            ret = -EINVAL;
-            goto err_free_memory;
-        }
-        
-        /* Allocate GGUF model structure */
-        llama_state.gguf_model = kzalloc(sizeof(struct gguf_model), GFP_KERNEL);
-        if (!llama_state.gguf_model) {
-            release_firmware(fw);
-            ret = -ENOMEM;
-            goto err_free_memory;
-        }
-        
-        /* Parse GGUF file */
-        ret = gguf_parse_header(fw->data, fw->size, &llama_state.gguf_model->header);
-        if (ret) {
-            pr_err("🦙 Llamux: Failed to parse GGUF header\n");
-            release_firmware(fw);
-            goto err_free_gguf;
-        }
-        
-        pr_info("🦙 Llamux: GGUF version %u, %llu tensors, %llu metadata entries\n",
-                llama_state.gguf_model->header.version,
-                llama_state.gguf_model->header.tensor_count,
-                llama_state.gguf_model->header.metadata_kv_count);
-        
-        /* Parse metadata */
-        ret = gguf_parse_metadata(fw->data, fw->size, llama_state.gguf_model);
-        if (ret < 0) {
-            pr_err("🦙 Llamux: Failed to parse metadata\n");
-            release_firmware(fw);
-            goto err_free_gguf;
-        }
-        
-        /* Set default vocab size if not found in metadata */
-        if (llama_state.gguf_model->vocab_size == 0) {
-            llama_state.gguf_model->vocab_size = 32000; /* TinyLlama default */
-        }
-        
-        /* Parse tensor info */
-        ret = gguf_parse_tensor_info(fw->data, fw->size, llama_state.gguf_model);
-        if (ret) {
-            pr_err("🦙 Llamux: Failed to parse tensor info\n");
-            release_firmware(fw);
-            goto err_free_gguf;
-        }
-        
-        /* Validate model */
-        ret = gguf_validate_model(llama_state.gguf_model);
-        if (ret) {
-            pr_err("🦙 Llamux: Model validation failed\n");
-            release_firmware(fw);
-            goto err_free_gguf;
-        }
-        
-        /* Print model info */
-        gguf_print_model_info(llama_state.gguf_model);
-        
-        /* Allocate memory for tensor data */
-        size_t tensor_data_size = fw->size - llama_state.gguf_model->data_offset;
-        pr_info("🦙 Llamux: Allocating %zu MB for tensor data\n", 
-                tensor_data_size / (1024 * 1024));
-        
-        /* For now, we'll use a smaller subset for kernel memory limits */
-        /* In production, this would use the full model */
-        size_t max_tensor_size = 64 * 1024 * 1024; /* 64MB limit for testing */
-        tensor_data_size = min(tensor_data_size, max_tensor_size);
-        
-        /* Load tensor data */
-        ret = gguf_load_tensor_data(fw->data, fw->size, llama_state.gguf_model,
-                                   llama_state.model_memory, tensor_data_size);
-        if (ret) {
-            pr_warn("🦙 Llamux: Failed to load tensor data, using mock weights\n");
-        } else {
-            pr_info("🦙 Llamux: Loaded tensor data successfully!\n");
-        }
-        
-        release_firmware(fw);
-        
-        /* Continue with initialization using parsed model structure */
-        } else {
-            pr_warn("🦙 Llamux: Model file not found in firmware, using mock model\n");
-            /* Allocate GGUF model structure for mock model */
-            llama_state.gguf_model = kzalloc(sizeof(struct gguf_model), GFP_KERNEL);
-            if (!llama_state.gguf_model) {
-                ret = -ENOMEM;
-                goto err_free_memory;
+        while (bytes_read < file_size) {
+            size_t to_read = min(chunk_size, (size_t)(file_size - bytes_read));
+            ssize_t chunk_ret;
+            
+            chunk_ret = kernel_read(filp, (char*)model_data + bytes_read, to_read, &pos);
+            if (chunk_ret <= 0) {
+                pr_err("🦙 Llamux: Failed to read chunk at offset %zu: %zd\n", 
+                       bytes_read, chunk_ret);
+                ret = chunk_ret ? chunk_ret : -EIO;
+                goto err_free_model_data;
             }
-            /* Set up mock model */
-            llama_state.gguf_model->model_name = kstrdup("TinyLlama-Mock", GFP_KERNEL);
-            llama_state.gguf_model->model_arch = kstrdup("llama", GFP_KERNEL);
-            llama_state.gguf_model->n_layers = 2;  /* Reduced from 22 */
-            llama_state.gguf_model->n_heads = 4;   /* Reduced from 32 */
-            llama_state.gguf_model->context_length = 128;  /* Reduced from 2048 */
-            llama_state.gguf_model->embedding_length = 128;  /* Reduced from 2048 */
-            llama_state.gguf_model->vocab_size = 1000;  /* Reduced from 32000 */
-            llama_state.gguf_model->feed_forward_length = 256;  /* Reduced from 5632 */
+            
+            bytes_read += chunk_ret;
+            if (bytes_read % (1024 * 1024 * 1024) == 0) {
+                pr_info("🦙 Llamux: Read %zu GB so far...\n", bytes_read / (1024 * 1024 * 1024));
+            }
         }
         
-        /* Initialize GGML context - needs more for all the placeholder tensors */
-        size_t ctx_size = 32 * 1024 * 1024; /* 32MB for tensors */
-        void *ctx_mem = llama_state.model_memory;
-        
-        pr_info("🦙 Llamux: Initializing GGML context with %zu MB\n", ctx_size / (1024 * 1024));
-        llama_state.ggml_ctx = ggml_init(ctx_size, ctx_mem);
-        if (!llama_state.ggml_ctx) {
-            pr_err("🦙 Llamux: Failed to initialize GGML\n");
-            ret = -ENOMEM;
-            goto err_free_gguf;
+        if (bytes_read != file_size) {
+            pr_err("🦙 Llamux: Read size mismatch: expected %lld, got %zu\n", 
+                   file_size, bytes_read);
+            ret = -EIO;
+            goto err_free_model_data;
         }
-        
-        /* Create LLaMA model from GGUF */
-        llama_state.llama = llama_model_create_from_gguf(llama_state.ggml_ctx, llama_state.gguf_model);
-        if (!llama_state.llama) {
-            pr_err("🦙 Llamux: Failed to create LLaMA model\n");
-            ret = -ENOMEM;
-            goto err_free_ggml;
-        }
-        
-        /* Create inference state */
-        llama_state.inference_state = llama_state_create(llama_state.llama);
-        if (!llama_state.inference_state) {
-            pr_err("🦙 Llamux: Failed to create inference state\n");
-            ret = -ENOMEM;
-            goto err_free_llama;
-        }
-        
-        pr_info("🦙 Llamux: Using mock model for testing\n");
-        llama_print_model_info(llama_state.llama);
-        return 0;
+    }
+    
+    pr_info("🦙 Llamux: Successfully read %lld MB from model file\n", file_size / (1024*1024));
+    
+    /* Close file - we have the data in memory now */
+    filp_close(filp, NULL);
+    filp = NULL;
+    
+    /* Now process the model data as before */
+    if (file_size < sizeof(struct gguf_header)) {
+        pr_err("🦙 Llamux: Model file too small\n");
+        ret = -EINVAL;
+        goto err_free_model_data;
+    }
+    
+    /* Allocate GGUF model structure */
+    llama_state.gguf_model = kzalloc(sizeof(struct gguf_model), GFP_KERNEL);
+    if (!llama_state.gguf_model) {
+        ret = -ENOMEM;
+        goto err_free_model_data;
+    }
+    
+    /* Parse GGUF file */
+    ret = gguf_parse_header(model_data, file_size, &llama_state.gguf_model->header);
+    if (ret) {
+        pr_err("🦙 Llamux: Failed to parse GGUF header\n");
+        goto err_free_gguf;
+    }
+    
+    pr_info("🦙 Llamux: GGUF version %u, %llu tensors, %llu metadata entries\n",
+            llama_state.gguf_model->header.version,
+            llama_state.gguf_model->header.tensor_count,
+            llama_state.gguf_model->header.metadata_kv_count);
+    
+    /* Parse metadata */
+    ret = gguf_parse_metadata(model_data, file_size, llama_state.gguf_model);
+    if (ret < 0) {
+        pr_err("🦙 Llamux: Failed to parse metadata\n");
+        goto err_free_gguf;
+    }
+    
+    /* Set default vocab size if not found in metadata */
+    if (llama_state.gguf_model->vocab_size == 0) {
+        llama_state.gguf_model->vocab_size = 32000; /* CodeLlama default */
+    }
+    
+    /* Parse tensor info */
+    ret = gguf_parse_tensor_info(model_data, file_size, llama_state.gguf_model);
+    if (ret) {
+        pr_err("🦙 Llamux: Failed to parse tensor info\n");
+        goto err_free_gguf;
+    }
+    
+    /* Validate model */
+    ret = gguf_validate_model(llama_state.gguf_model);
+    if (ret) {
+        pr_err("🦙 Llamux: Model validation failed\n");
+        goto err_free_gguf;
+    }
+    
+    /* Print model info */
+    gguf_print_model_info(llama_state.gguf_model);
+    
+    /* Allocate memory for tensor data */
+    size_t tensor_data_size = file_size - llama_state.gguf_model->data_offset;
+    pr_info("🦙 Llamux: Tensor data size: %zu MB\n", 
+            tensor_data_size / (1024 * 1024));
+    
+    /* Load tensor data */
+    ret = gguf_load_tensor_data(model_data, file_size, llama_state.gguf_model,
+                               llama_state.model_memory, llama_state.model_size);
+    if (ret) {
+        pr_warn("🦙 Llamux: Failed to load tensor data, using mock weights\n");
+    } else {
+        pr_info("🦙 Llamux: Loaded tensor data successfully!\n");
+    }
+    
+    /* Free the temporary model data buffer - tensor data is now in model_memory */
+    vfree(model_data);
+    model_data = NULL;
+    
+    /* Initialize GGML context - needs enough for model tensors */
+    /* After loading tensor data, use remaining memory for GGML context */
+    size_t tensor_data_used = file_size - llama_state.gguf_model->data_offset;
+    size_t remaining_size = llama_state.model_size - tensor_data_used;
+    void *ctx_mem = (char*)llama_state.model_memory + tensor_data_used;
+    
+    pr_info("🦙 Llamux: Tensor data used %zu MB, %zu MB remaining for GGML context\n", 
+            tensor_data_used / (1024 * 1024), remaining_size / (1024 * 1024));
+    pr_info("🦙 Llamux: Initializing GGML context with %zu MB\n", remaining_size / (1024 * 1024));
+    llama_state.ggml_ctx = ggml_init(remaining_size, ctx_mem);
+    
+    if (!llama_state.ggml_ctx) {
+        pr_err("🦙 Llamux: Failed to initialize GGML\n");
+        ret = -ENOMEM;
+        goto err_free_gguf;
+    }
+    
+    /* Create LLaMA model from GGUF */
+    llama_state.llama = llama_model_create_from_gguf(llama_state.ggml_ctx, llama_state.gguf_model);
+    if (!llama_state.llama) {
+        pr_err("🦙 Llamux: Failed to create LLaMA model\n");
+        ret = -ENOMEM;
+        goto err_free_ggml;
+    }
+    
+    /* Create inference state */
+    llama_state.inference_state = llama_state_create(llama_state.llama);
+    if (!llama_state.inference_state) {
+        pr_err("🦙 Llamux: Failed to create inference state\n");
+        ret = -ENOMEM;
+        goto err_free_llama;
+    }
+    
+    pr_info("🦙 Llamux: Real model loaded successfully!\n");
+    llama_print_model_info(llama_state.llama);
+    return 0;
         
 err_free_llama:
-        llama_model_free(llama_state.llama);
-        llama_state.llama = NULL;
+    llama_model_free(llama_state.llama);
+    llama_state.llama = NULL;
 err_free_ggml:
-        ggml_free(llama_state.ggml_ctx);
-        llama_state.ggml_ctx = NULL;
+    ggml_free(llama_state.ggml_ctx);
+    llama_state.ggml_ctx = NULL;
 err_free_gguf:
-        if (llama_state.gguf_model) {
-            gguf_free_model(llama_state.gguf_model);
-            kfree(llama_state.gguf_model);
-            llama_state.gguf_model = NULL;
-        }
-err_free_memory:
-        if (llamux_mem_region.mapped) {
-            llamux_unmap_reserved_memory();
-        } else if (llama_state.model_memory) {
-            vfree(llama_state.model_memory);
-            llama_state.model_memory = NULL;
-        }
-        return ret;
+    if (llama_state.gguf_model) {
+        gguf_free_model(llama_state.gguf_model);
+        kfree(llama_state.gguf_model);
+        llama_state.gguf_model = NULL;
     }
-
+err_free_model_data:
+    if (model_data)
+        vfree(model_data);
+err_close_file:
+    if (filp && !IS_ERR(filp))
+        filp_close(filp, NULL);
+err_free_memory:
+    if (llamux_mem_region.mapped) {
+        llamux_unmap_reserved_memory();
+    } else if (llama_state.model_memory) {
+        vfree(llama_state.model_memory);
+        llama_state.model_memory = NULL;
+    }
+    return ret;
+}
 /*
  * Unload the model and free memory
  */
@@ -533,8 +572,12 @@ static void __exit llama_exit(void)
     llama_state.initialized = false;
     
     /* Stop inference thread */
-    if (llama_state.inference_thread) {
-        kthread_stop(llama_state.inference_thread);
+    if (llama_state.inference_thread && !IS_ERR(llama_state.inference_thread)) {
+        pr_info("🦙 Llamux: Stopping inference thread...\n");
+        int ret = kthread_stop(llama_state.inference_thread);
+        if (ret) {
+            pr_err("🦙 Llamux: Failed to stop inference thread: %d\n", ret);
+        }
         llama_state.inference_thread = NULL;
     }
     

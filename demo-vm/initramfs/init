@@ -1,0 +1,37 @@
+#!/bin/sh
+
+# Mount essential filesystems
+/bin/mount -t proc none /proc
+/bin/mount -t sysfs none /sys
+/bin/mount -t devtmpfs none /dev
+
+echo ""
+echo "=== Llamux Demo VM ==="
+echo "Kernel: $(uname -r)"
+echo "Memory: $(cat /proc/meminfo | grep MemTotal)"
+echo "Vmalloc: $(cat /proc/meminfo | grep VmallocTotal)"
+echo ""
+
+# Create device node if needed
+/bin/mknod /dev/llama c 10 200 2>/dev/null || true
+
+echo "Loading Llamux kernel module..."
+/bin/insmod /llama_core.ko
+
+if [ $? -eq 0 ]; then
+    echo "✓ Module loaded successfully!"
+    /bin/lsmod
+    
+    echo ""
+    echo "Testing LLM..."
+    echo "Hello, AI!" > /dev/llama
+    echo "Response:"
+    /bin/cat /dev/llama
+else
+    echo "✗ Failed to load module"
+    /bin/dmesg | tail -20
+fi
+
+echo ""
+echo "Starting shell..."
+exec /bin/sh

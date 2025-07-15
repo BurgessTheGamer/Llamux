@@ -1,0 +1,30 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "Build Kernel Module",
+            "type": "shell",
+            "command": "make",
+            "args": ["-C", "llamux/kernel/llama_core"],
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            },
+            "problemMatcher": ["$gcc"]
+        },
+        {
+            "label": "Clean Build",
+            "type": "shell",
+            "command": "make",
+            "args": ["-C", "llamux/kernel/llama_core", "clean"],
+            "group": "build"
+        },
+        {
+            "label": "Test Module",
+            "type": "shell",
+            "command": "sudo",
+            "args": ["./test-kernel.sh", "1"],
+            "group": "test"
+        }
+    ]
+}

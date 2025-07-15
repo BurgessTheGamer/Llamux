@@ -18,7 +18,9 @@ struct ggml_tensor;
 
 /* GGUF magic number */
 #define GGUF_MAGIC 0x46554747  /* "GGUF" */
-#define GGUF_VERSION 3
+#define GGUF_VERSION_V2 2
+#define GGUF_VERSION_V3 3
+#define GGUF_VERSION GGUF_VERSION_V3  /* Default/latest */
 
 /* GGUF value types */
 enum gguf_type {

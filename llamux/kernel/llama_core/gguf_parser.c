@@ -58,7 +58,21 @@ size_t ggml_tensor_size(const struct gguf_tensor_info *tensor)
     
     /* For quantized types, we need to calculate based on blocks */
     if (tensor->type >= GGML_TYPE_Q4_0 && tensor->type <= GGML_TYPE_Q8_K) {
-        size_t block_size = 32; /* Standard block size for quantization */
+        size_t block_size;
+        switch (tensor->type) {
+        case GGML_TYPE_Q4_0:
+        case GGML_TYPE_Q4_1:
+            block_size = 32;
+            break;
+        case GGML_TYPE_Q4_K:
+        case GGML_TYPE_Q5_K:
+        case GGML_TYPE_Q6_K:
+        case GGML_TYPE_Q8_K:
+            block_size = 256; /* K-quants use 256-element super-blocks */
+            break;
+        default:
+            block_size = 32;
+        }
         size_t n_blocks = (total_elements + block_size - 1) / block_size;
         return n_blocks * ggml_type_size(tensor->type);
     }
@@ -95,8 +109,8 @@ int gguf_parse_header(const void *data, size_t size, struct gguf_header *header)
     }
     
     /* Check version */
-    if (header->version != GGUF_VERSION) {
-        pr_err("🦙 Llamux: Unsupported GGUF version: %u\n", header->version);
+    if (header->version != GGUF_VERSION_V2 && header->version != GGUF_VERSION_V3) {
+        pr_err("🦙 Llamux: Unsupported GGUF version: %u (supported: v2, v3)\n", header->version);
         return -EINVAL;
     }
     
@@ -421,13 +435,9 @@ int gguf_load_tensor_data(const void *file_data, size_t file_size, struct gguf_m
     }
     
     pr_info("🦙 Llamux: Loading tensor data from offset %llu\n", model->data_offset);
-    
-    /* Check if data offset is valid */
-    if (model->data_offset >= file_size) {
-        pr_err("🦙 Llamux: Data offset %llu exceeds file size %zu\n", 
-               model->data_offset, file_size);
-        return -EINVAL;
-    }
+    pr_info("🦙 Llamux: Memory available: %zu MB, need ~%zu MB\n", 
+            memory_size / (1024*1024), 
+            (file_size - model->data_offset) / (1024*1024));
     
     /* Copy tensor data */
     for (i = 0; i < model->tensor_count; i++) {
@@ -439,7 +449,11 @@ int gguf_load_tensor_data(const void *file_data, size_t file_size, struct gguf_m
         }
         
         if (total_size + tensor->size > memory_size) {
-            pr_err("🦙 Llamux: Not enough memory for tensor %s\n", tensor->name);
+            pr_err("🦙 Llamux: Not enough memory for tensor %s (need %zu MB, have %zu MB used, %zu MB total)\n", 
+                   tensor->name, 
+                   (total_size + tensor->size) / (1024*1024),
+                   total_size / (1024*1024),
+                   memory_size / (1024*1024));
             return -ENOMEM;
         }
         
@@ -478,15 +492,24 @@ void gguf_print_model_info(struct gguf_model *model) {
 
 /* Find tensor by name */
 struct gguf_tensor_info *gguf_find_tensor(struct gguf_model *model, const char *name) {
-    u64 i;
+    int i;
     
-    if (!model || !name || !model->tensors) {
+    if (!model || !name) {
         return NULL;
     }
     
+    /* Debug: print first few tensor names on first lookup */
+    static int debug_printed = 0;
+    if (!debug_printed && strcmp(name, "token_embd.weight") == 0) {
+        pr_info("🦙 GGUF: Looking for tensor '%s' among %llu tensors:\n", name, model->tensor_count);
+        for (i = 0; i < min(5, model->tensor_count); i++) {
+            pr_info("🦙 GGUF:   Tensor %d: '%s'\n", i, model->tensors[i].name);
+        }
+        debug_printed = 1;
+    }
+    
     for (i = 0; i < model->tensor_count; i++) {
-        if (model->tensors[i].name && 
-            strcmp(model->tensors[i].name, name) == 0) {
+        if (strcmp(model->tensors[i].name, name) == 0) {
             return &model->tensors[i];
         }
     }
@@ -499,20 +522,37 @@ struct ggml_tensor *gguf_tensor_to_ggml(struct ggml_context *ctx,
                                         struct gguf_tensor_info *info) {
     struct ggml_tensor *tensor;
     
-    if (!ctx || !info) {
+    if (!ctx || !info || ctx->n_objects >= GGML_MAX_NODES) {
         return NULL;
     }
     
-    /* Create tensor with appropriate dimensions */
-    tensor = ggml_new_tensor(ctx, info->type, info->n_dims, (int64_t *)info->dims);
+    /* Allocate tensor */
+    tensor = kzalloc(sizeof(struct ggml_tensor), GFP_KERNEL);
     if (!tensor) {
+        pr_err("🦙 GGUF: Failed to allocate tensor\n");
         return NULL;
     }
     
-    /* Set data pointer if available */
-    if (info->data) {
-        tensor->data = info->data;
+    /* Set tensor properties */
+    tensor->type = info->type;
+    tensor->n_dims = info->n_dims;
+    for (int i = 0; i < GGML_MAX_DIMS; i++) {
+        tensor->ne[i] = i < info->n_dims ? info->dims[i] : 1;
+        tensor->nb[i] = i == 0 ? ggml_type_size(info->type) : 
+                        tensor->nb[i-1] * tensor->ne[i-1];
     }
+    
+    /* Point to existing data */
+    tensor->data = info->data;
+    tensor->op = GGML_OP_NONE;
+    tensor->src0 = NULL;
+    tensor->src1 = NULL;
+    
+    /* Add to context */
+    ctx->objects[ctx->n_objects++] = tensor;
+    
+    pr_info("🦙 GGUF: Created view tensor type=%d, dims=[%lld,%lld], data=%p\n",
+            info->type, tensor->ne[0], tensor->ne[1], info->data);
     
     return tensor;
 }

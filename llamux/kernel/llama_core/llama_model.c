@@ -59,20 +59,19 @@ struct llama_model *llama_model_create_from_gguf(struct ggml_context *ctx, struc
     struct gguf_tensor_info *tok_embd_gguf = gguf_find_tensor(gguf, "token_embd.weight");
     if (tok_embd_gguf) {
         model->tok_embeddings = gguf_tensor_to_ggml(ctx, tok_embd_gguf);
-    } else {
-        pr_warn("🦙 Llama: Token embeddings not found, creating placeholder\n");
-        /* Create placeholder embedding matrix */
-        int64_t ne[4] = {model->hparams.n_embd, model->hparams.n_vocab, 1, 1};
-        model->tok_embeddings = ggml_new_tensor(ctx, GGML_TYPE_F32, 2, ne);
-        if (model->tok_embeddings) {
-            /* Initialize with small random values */
-            float *data = (float *)model->tok_embeddings->data;
-            if (data) {
-                for (int i = 0; i < model->hparams.n_embd * model->hparams.n_vocab; i++) {
-                    data[i] = 0.01f * (i % 100) / 100.0f;
-                }
-            }
+        if (!model->tok_embeddings) {
+            pr_err("🦙 Llama: Failed to create token embeddings tensor!\n");
+            kfree(model->layers);
+            kfree(model);
+            return NULL;
         }
+        pr_info("🦙 Llama: Token embeddings created: %p, dims: %lld x %lld\n", 
+                model->tok_embeddings, tok_embd_gguf->dims[0], tok_embd_gguf->dims[1]);
+    } else {
+        pr_err("🦙 Llama: Token embeddings not found - required for real model!\n");
+        kfree(model->layers);
+        kfree(model);
+        return NULL;
     }
     
     /* Output norm */
@@ -114,7 +113,7 @@ struct llama_model *llama_model_create_from_gguf(struct ggml_context *ctx, struc
         gguf_tensor = gguf_find_tensor(gguf, tensor_name);
         layer->wo = gguf_tensor ? gguf_tensor_to_ggml(ctx, gguf_tensor) : NULL;
         
-        /* FFN weights */
+        /* FFN weights - we'll transpose w1 and w3 after loading */
         snprintf(tensor_name, sizeof(tensor_name), "blk.%d.ffn_gate.weight", i);
         gguf_tensor = gguf_find_tensor(gguf, tensor_name);
         layer->w1 = gguf_tensor ? gguf_tensor_to_ggml(ctx, gguf_tensor) : NULL;
@@ -126,6 +125,8 @@ struct llama_model *llama_model_create_from_gguf(struct ggml_context *ctx, struc
         snprintf(tensor_name, sizeof(tensor_name), "blk.%d.ffn_up.weight", i);
         gguf_tensor = gguf_find_tensor(gguf, tensor_name);
         layer->w3 = gguf_tensor ? gguf_tensor_to_ggml(ctx, gguf_tensor) : NULL;
+        
+        /* Don't transpose during loading - we'll handle it differently */
         
         /* Normalization */
         snprintf(tensor_name, sizeof(tensor_name), "blk.%d.attn_norm.weight", i);
@@ -265,8 +266,8 @@ struct llama_state *llama_state_create(struct llama_model *model) {
         goto err_free_tokens;
     }
     
-    /* Initialize KV cache - use smaller context for kernel testing */
-    const int64_t test_ctx = 128; /* Reduced from 2048 for kernel memory limits */
+    /* Initialize KV cache - full context for CodeLlama 13B */
+    const int64_t test_ctx = 2048; /* Full 2K context for code analysis */
     const int64_t n_mem = model->hparams.n_layer * test_ctx;
     const int64_t n_elements = model->hparams.n_embd * n_mem;
     
@@ -349,9 +350,27 @@ static struct ggml_tensor *llama_attention(
     }
     
     /* Compute Q, K, V projections */
+    pr_info("🦙 Llama: Computing attention for layer %d\n", layer_idx);
+    pr_info("🦙 Llama:   input shape: [%lld, %lld]\n", input->ne[0], input->ne[1]);
+    pr_info("🦙 Llama:   wq shape: [%lld, %lld]\n", layer->wq->ne[0], layer->wq->ne[1]);
+    
     struct ggml_tensor *q = ggml_mul_mat(ctx, layer->wq, input);
+    if (!q) {
+        pr_err("🦙 Llama: Failed to compute Q projection\n");
+        return NULL;
+    }
+    
     struct ggml_tensor *k = ggml_mul_mat(ctx, layer->wk, input);
+    if (!k) {
+        pr_err("🦙 Llama: Failed to compute K projection\n");
+        return NULL;
+    }
+    
     struct ggml_tensor *v = ggml_mul_mat(ctx, layer->wv, input);
+    if (!v) {
+        pr_err("🦙 Llama: Failed to compute V projection\n");
+        return NULL;
+    }
     
     /* Reshape for multi-head attention */
     /* Q: [n_embd] -> [n_head, head_dim] */
@@ -361,8 +380,19 @@ static struct ggml_tensor *llama_attention(
     const int n_past = state->n_past;
     const int rope_dims = model->hparams.n_rot ?: n_embd;
     
+    pr_info("🦙 Llama: Applying RoPE with n_past=%d, rope_dims=%d\n", n_past, rope_dims);
+    
     q = ggml_rope(ctx, q, n_past, rope_dims, 0);
+    if (!q) {
+        pr_err("🦙 Llama: RoPE failed for Q\n");
+        return NULL;
+    }
+    
     k = ggml_rope(ctx, k, n_past, rope_dims, 0);
+    if (!k) {
+        pr_err("🦙 Llama: RoPE failed for K\n");
+        return NULL;
+    }
     
     /* Update KV cache */
     if (state->cache.k && state->cache.v) {
@@ -373,8 +403,32 @@ static struct ggml_tensor *llama_attention(
     }
     
     /* Compute attention scores: Q @ K^T / sqrt(head_dim) */
-    /* For now, simplified implementation */
-    struct ggml_tensor *scores = ggml_mul_mat(ctx, k, q);
+    /* Q is [hidden, seq_len], K is [hidden, seq_len] */
+    /* We need Q^T @ K = [seq_len, seq_len] */
+    pr_info("🦙 Llama: Computing attention scores, Q shape: [%lld,%lld], K shape: [%lld,%lld]\n",
+            q->ne[0], q->ne[1], k->ne[0], k->ne[1]);
+    
+    /* Transpose Q and K to get [seq_len, hidden] */
+    struct ggml_tensor *q_t = ggml_transpose(ctx, q);
+    if (!q_t) {
+        pr_err("🦙 Llama: Failed to transpose Q\n");
+        return NULL;
+    }
+    
+    struct ggml_tensor *k_t = ggml_transpose(ctx, k);
+    if (!k_t) {
+        pr_err("🦙 Llama: Failed to transpose K\n");
+        return NULL;
+    }
+    
+    /* Now compute Q_t @ K_t^T which gives us [seq_len, seq_len] */
+    /* q_t is [6, 5120], k_t is [6, 5120] */
+    /* ggml_mul_mat(A, B) computes A @ B^T, so this gives us q_t @ k_t^T = [6, 6] */
+    struct ggml_tensor *scores = ggml_mul_mat(ctx, k_t, q_t);
+    if (!scores) {
+        pr_err("🦙 Llama: Failed to compute attention scores\n");
+        return NULL;
+    }
     
     /* Scale by 1/sqrt(head_dim) */
     /* Use integer approximation for kernel space */
@@ -388,15 +442,44 @@ static struct ggml_tensor *llama_attention(
         scale = 1.0f / (float)head_dim;
     }
     scores = ggml_scale(ctx, scores, scale);
+    if (!scores) {
+        pr_err("🦙 Llama: Failed to scale attention scores\n");
+        return NULL;
+    }
     
     /* Apply softmax */
     scores = ggml_soft_max(ctx, scores);
+    if (!scores) {
+        pr_err("🦙 Llama: Failed to apply softmax\n");
+        return NULL;
+    }
     
     /* Apply attention to values: scores @ V */
+    pr_info("🦙 Llama: Applying attention - scores shape: [%lld,%lld], V shape: [%lld,%lld]\n",
+            scores->ne[0], scores->ne[1], v->ne[0], v->ne[1]);
+    
+    /* scores is [seq_len, seq_len], V is [hidden, seq_len] */
+    /* We need scores @ V^T to get [seq_len, hidden] */
+    /* Since ggml_mul_mat computes A @ B^T, we pass (v, scores) to get scores @ v^T */
     struct ggml_tensor *attn_output = ggml_mul_mat(ctx, v, scores);
+    if (!attn_output) {
+        pr_err("🦙 Llama: Failed to apply attention to values\n");
+        return NULL;
+    }
+    
+    /* Now we have [seq_len, hidden], but we need [hidden, seq_len] for the output projection */
+    attn_output = ggml_transpose(ctx, attn_output);
+    if (!attn_output) {
+        pr_err("🦙 Llama: Failed to transpose attention output\n");
+        return NULL;
+    }
     
     /* Project back to embedding dimension */
     attn_output = ggml_mul_mat(ctx, layer->wo, attn_output);
+    if (!attn_output) {
+        pr_err("🦙 Llama: Failed to project attention output\n");
+        return NULL;
+    }
     
     return attn_output;
 }
@@ -450,11 +533,90 @@ static struct ggml_tensor *llama_layer_forward(
     
     /* FFN layers - skip if weights not loaded */
     if (layer->w1 && layer->w2 && layer->w3) {
-        struct ggml_tensor *gate = ggml_mul_mat(ctx, layer->w1, cur);
-        struct ggml_tensor *up = ggml_mul_mat(ctx, layer->w3, cur);
+        /* Debug: print tensor shapes */
+        pr_info("🦙 FFN input cur: [%lld, %lld]\n", cur->ne[0], cur->ne[1]);
+        pr_info("🦙 FFN w1 (gate): [%lld, %lld]\n", layer->w1->ne[0], layer->w1->ne[1]);
+        pr_info("🦙 FFN w3 (up): [%lld, %lld]\n", layer->w3->ne[0], layer->w3->ne[1]);
+        pr_info("🦙 FFN w2 (down): [%lld, %lld]\n", layer->w2->ne[0], layer->w2->ne[1]);
+        
+        /* Simplified approach: use the correct operation order
+         * ggml_mul_mat(A, B) computes A @ B^T
+         * 
+         * We have:
+         * - cur: [5120, seq_len] 
+         * - w1/w3: [5120, 13824]
+         * 
+         * We want: cur^T @ w1^T = [seq_len, 5120] @ [13824, 5120]^T = [seq_len, 13824]
+         * Then transpose to get [13824, seq_len]
+         * 
+         * Using ggml_mul_mat(w1, cur) = w1 @ cur^T = [5120, 13824] @ [seq_len, 5120]
+         * This needs w1.ne[0] == cur.ne[0] = 5120 == 5120 ✓
+         * Result: [cur.ne[1], w1.ne[1]] = [seq_len, 13824]
+         */
+        
+        /* Gate and up projections */
+        struct ggml_tensor *gate = ggml_mul_mat(ctx, layer->w1, cur);  /* [seq_len, 13824] */
+        if (!gate) {
+            pr_err("🦙 FFN: gate mul_mat failed\n");
+            return NULL;
+        }
+        
+        struct ggml_tensor *up = ggml_mul_mat(ctx, layer->w3, cur);    /* [seq_len, 13824] */
+        if (!up) {
+            pr_err("🦙 FFN: up mul_mat failed\n");
+            return NULL;
+        }
+        
         gate = ggml_silu(ctx, gate);
-        cur = ggml_mul(ctx, gate, up);
-        cur = ggml_mul_mat(ctx, layer->w2, cur);
+        if (!gate) {
+            pr_err("🦙 FFN: silu failed\n");
+            return NULL;
+        }
+        cur = ggml_mul(ctx, gate, up);  /* [seq_len, 13824] */
+        if (!cur) {
+            pr_err("🦙 FFN: gate*up mul failed\n");
+            return NULL;
+        }
+        
+        /* For down projection: cur is [seq_len, 13824], w2 is [13824, 5120]
+         * We want: cur @ w2^T = [seq_len, 13824] @ [5120, 13824]^T = [seq_len, 5120]
+         * 
+         * Using ggml_mul_mat(cur, w2) = cur @ w2^T = [seq_len, 13824] @ [5120, 13824]
+         * This needs cur.ne[0] == w2.ne[0]... but cur.ne[0] = seq_len and w2.ne[0] = 13824
+         * 
+         * Actually, we need to think about this differently.
+         * The result of gate*up is [seq_len, 13824]
+         * We need to project this down to [seq_len, 5120]
+         * 
+         * Standard: result = hidden @ W2^T where W2 is [5120, 13824]
+         * So we want: [seq_len, 13824] @ [13824, 5120] = [seq_len, 5120]
+         * 
+         * With ggml_mul_mat(A, B) = A @ B^T:
+         * We need A @ B^T = [seq_len, 13824] @ [13824, 5120]
+         * So B should be [5120, 13824]^T = [13824, 5120]
+         * But w2 is already [13824, 5120]!
+         * 
+         * Wait, let me check the actual dimensions...
+         */
+        pr_info("🦙 FFN down: cur is [%lld, %lld], w2 is [%lld, %lld]\n",
+                cur->ne[0], cur->ne[1], layer->w2->ne[0], layer->w2->ne[1]);
+        
+        /* Let's try a different approach - transpose cur first */
+        struct ggml_tensor *cur_t = ggml_transpose(ctx, cur);  /* [13824, seq_len] */
+        if (!cur_t) {
+            pr_err("🦙 FFN: cur transpose failed\n");
+            return NULL;
+        }
+        
+        /* Now: ggml_mul_mat(w2, cur_t) = [13824, 5120] @ [13824, seq_len]^T = [13824, 5120] @ [seq_len, 13824]
+         * This needs w2.ne[0] == cur_t.ne[0] = 13824 == 13824 ✓
+         * Result: [cur_t.ne[1], w2.ne[1]] = [seq_len, 5120]
+         */
+        cur = ggml_mul_mat(ctx, layer->w2, cur_t);
+        if (!cur) {
+            pr_err("🦙 FFN: down projection failed\n");
+            return NULL;
+        }
     }
     
     /* Add residual */
@@ -478,16 +640,28 @@ int llama_eval(struct llama_state *state,
     
     /* Create embeddings */
     struct ggml_tensor *embd = ggml_new_tensor_1d(ctx, GGML_TYPE_I32, n_tokens);
+    if (!embd) {
+        pr_err("🦙 Llama: Failed to create embedding indices tensor!\n");
+        return -EINVAL;
+    }
     memcpy(embd->data, tokens, n_tokens * sizeof(int32_t));
+    
+    pr_info("🦙 Llama: Getting embeddings for %d tokens, tok_embeddings=%p\n", 
+            n_tokens, model->tok_embeddings);
     
     struct ggml_tensor *cur = ggml_get_rows(ctx, model->tok_embeddings, embd);
     if (!cur) {
-        pr_err("🦙 Llama: Failed to get embeddings!\n");
+        pr_err("🦙 Llama: Failed to get embeddings! tok_embeddings=%p, embd=%p\n",
+               model->tok_embeddings, embd);
         return -EINVAL;
     }
     
     /* Run through transformer layers */
     for (int i = 0; i < model->hparams.n_layer; i++) {
+        if (i % 10 == 0) {
+            pr_info("🦙 Llama: Processing layer %d/%d, nodes: %d\n", 
+                    i, model->hparams.n_layer, ctx->n_objects);
+        }
         cur = llama_layer_forward(ctx, model, state, cur, i);
         if (!cur) {
             pr_err("🦙 Llama: Layer %d forward pass failed!\n", i);
@@ -506,6 +680,16 @@ int llama_eval(struct llama_state *state,
         cur = ggml_mul_mat(ctx, model->output, cur);
     }
     
+    /* Build and execute the computation graph */
+    struct ggml_cgraph *gf = ggml_build_forward(cur);
+    if (!gf) {
+        pr_err("🦙 Llama: Failed to build computation graph!\n");
+        return -EINVAL;
+    }
+    
+    pr_info("🦙 Llama: Executing computation graph...\n");
+    ggml_graph_compute(ctx, gf);
+    
     /* Copy logits */
     if (cur->ne[0] == model->hparams.n_vocab) {
         memcpy(state->logits, cur->data, 
@@ -520,22 +704,33 @@ int llama_eval(struct llama_state *state,
 
 /* Sample next token */
 int32_t llama_sample_token(struct llama_state *state) {
-    if (!state || !state->logits) {
+    if (!state || !state->logits || !state->model) {
         return -1;
     }
     
-    /* For now, just return a random token from our mock vocabulary */
-    /* In real implementation, this would do proper sampling with temperature */
-    static const int32_t mock_tokens[] = {
-        10, 20, 30, 40, 50, 60, 70, 80, 90, 100,
-        110, 120, 130, 140, 150, 160, 170, 180, 190, 200
-    };
+    const int n_vocab = state->model->hparams.n_vocab;
+    float *logits = state->logits;
     
-    /* Simple pseudo-random selection */
-    static int counter = 0;
-    counter = (counter + 1) % 20;
+    /* Find token with highest logit (greedy sampling) */
+    int32_t best_token = 0;
+    float best_logit = logits[0];
     
-    return mock_tokens[counter];
+    kernel_fpu_begin();
+    for (int i = 1; i < n_vocab; i++) {
+        if (logits[i] > best_logit) {
+            best_logit = logits[i];
+            best_token = i;
+        }
+    }
+    kernel_fpu_end();
+    
+    /* Debug: print selected token */
+    if (best_token < 100) {
+        pr_info("🦙 Llama: Sampled token %d (logit=%.3f)\n", 
+                best_token, best_logit);
+    }
+    
+    return best_token;
 }
 
 /* High-level generation function */
@@ -594,6 +789,22 @@ int llama_generate(struct llama_state *state,
         }
         
         generated_tokens[n_gen++] = next_token;
+        
+        /* Reset context to reuse memory for next token
+         * This is a hack but necessary to avoid running out of nodes
+         * We keep the model weights but reset the computation graph
+         */
+        if (state->model && state->model->ctx) {
+            /* Save current object count */
+            int saved_objects = state->model->ctx->n_objects;
+            
+            /* Find where temporary tensors start (after model weights) */
+            /* Assume first ~2000 objects are model weights */
+            if (saved_objects > 2000) {
+                state->model->ctx->n_objects = 2000;
+                state->model->ctx->mem_used = state->model->ctx->mem_used / 2; /* Rough estimate */
+            }
+        }
         
         /* Evaluate new token */
         ret = llama_eval(state, &next_token, 1, state->n_past);

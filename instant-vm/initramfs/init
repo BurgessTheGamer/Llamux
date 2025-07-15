@@ -1,0 +1,41 @@
+#!/bin/bash
+export PATH=/bin:/sbin
+
+# Mount essential filesystems
+mount -t proc none /proc
+mount -t sysfs none /sys
+mount -t devtmpfs none /dev
+
+echo "Llamux VM booted with vmalloc=$(cat /proc/cmdline | grep -o 'vmalloc=[0-9]*M')"
+echo "Available memory: $(free -h)"
+
+# Show vmalloc info
+echo "VmallocTotal: $(grep VmallocTotal /proc/meminfo)"
+echo "VmallocUsed: $(grep VmallocUsed /proc/meminfo)"
+
+echo ""
+echo "Loading Llamux kernel module..."
+insmod /llama_core.ko
+
+if [ $? -eq 0 ]; then
+    echo "Module loaded successfully!"
+    lsmod | grep llama_core
+    
+    # Check if device was created
+    if [ -e /dev/llama ]; then
+        echo ""
+        echo "LLM device created at /dev/llama"
+        echo "You can now interact with the LLM using:"
+        echo "  echo 'Your prompt here' > /dev/llama"
+        echo "  cat /dev/llama"
+    fi
+else
+    echo "Failed to load module. Check dmesg for details."
+fi
+
+echo ""
+echo "Type 'dmesg' to see kernel messages"
+echo "Type 'echo \"Hello AI\" > /dev/llama && cat /dev/llama' to test the LLM"
+
+# Start shell
+exec /bin/bash

@@ -15,7 +15,7 @@
 
 /* Configuration */
 #define GGML_MAX_DIMS      4
-#define GGML_MAX_NODES     4096
+#define GGML_MAX_NODES     262144  /* 256K nodes for CodeLlama 13B - let's go big! */
 #define GGML_MAX_NAME      64
 #define GGML_TENSOR_ALIGN  32
 
@@ -40,13 +40,11 @@ enum ggml_op {
     GGML_OP_SILU,
     GGML_OP_SOFT_MAX,
     GGML_OP_ROPE,
-    GGML_OP_RESHAPE,
-    GGML_OP_VIEW,
-    GGML_OP_PERMUTE,
+    GGML_OP_SCALE,
     GGML_OP_GET_ROWS,
+    GGML_OP_TRANSPOSE,
     GGML_OP_CPY,
     GGML_OP_CONT,
-    GGML_OP_SCALE,
     GGML_OP_COUNT
 };
 
@@ -155,6 +153,9 @@ struct ggml_tensor *ggml_silu(struct ggml_context *ctx,
 struct ggml_tensor *ggml_get_rows(struct ggml_context *ctx,
                                  struct ggml_tensor *a,
                                  struct ggml_tensor *b);
+
+struct ggml_tensor *ggml_transpose(struct ggml_context *ctx,
+                                  struct ggml_tensor *a);
 
 struct ggml_tensor *ggml_rope(struct ggml_context *ctx,
                              struct ggml_tensor *a,

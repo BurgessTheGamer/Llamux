@@ -1,0 +1,19 @@
+#!/usr/bin/make -f
+
+srctree ?= .
+
+build-indep:
+build-arch:
+	$(MAKE) KERNELRELEASE=6.1.140-llamux-llamux ARCH=x86 	KBUILD_BUILD_VERSION=1 -f $(srctree)/Makefile
+
+build: build-arch
+
+binary-indep:
+binary-arch: build-arch
+	$(MAKE) KERNELRELEASE=6.1.140-llamux-llamux ARCH=x86 	KBUILD_BUILD_VERSION=1 -f $(srctree)/Makefile intdeb-pkg
+
+clean:
+	rm -rf debian/files debian/linux-*
+	$(MAKE) clean
+
+binary: binary-arch
