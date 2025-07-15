@@ -84,12 +84,22 @@ struct llama_model *llama_model_create_from_gguf(struct ggml_context *ctx, struc
         pr_warn("🦙 Llama: Output norm not found\n");
     }
     
-    /* Output projection */
+    /* Output projection - try multiple possible names */
     struct gguf_tensor_info *output_gguf = gguf_find_tensor(gguf, "output.weight");
+    if (!output_gguf) {
+        output_gguf = gguf_find_tensor(gguf, "lm_head.weight");
+    }
+    if (!output_gguf) {
+        output_gguf = gguf_find_tensor(gguf, "output_norm.weight");
+    }
+    
     if (output_gguf) {
         model->output = gguf_tensor_to_ggml(ctx, output_gguf);
+        pr_info("🦙 Llama: Found output projection tensor: %s\n", output_gguf->name);
     } else {
-        pr_warn("🦙 Llama: Output projection not found\n");
+        /* Many LLaMA models use tied embeddings - output = input embeddings */
+        pr_warn("🦙 Llama: No separate output projection found, using tied embeddings\n");
+        model->output = model->tok_embeddings;
     }
     
     /* Initialize tokenizer with GGUF vocabulary if available */
@@ -726,7 +736,19 @@ int llama_eval(struct llama_state *state,
     
     /* Output projection */
     if (model->output) {
+        pr_info("🦙 Llama: Output projection - input shape [%lld,%lld], output weight shape [%lld,%lld]\n",
+                cur->ne[0], cur->ne[1], model->output->ne[0], model->output->ne[1]);
         cur = ggml_mul_mat(ctx, model->output, cur);
+        pr_info("🦙 Llama: After output projection - shape [%lld,%lld]\n", cur->ne[0], cur->ne[1]);
+    } else if (model->tok_embeddings) {
+        /* Use tied embeddings - transpose of input embeddings */
+        pr_info("🦙 Llama: Using tied embeddings for output - input shape [%lld,%lld], embed shape [%lld,%lld]\n",
+                cur->ne[0], cur->ne[1], model->tok_embeddings->ne[0], model->tok_embeddings->ne[1]);
+        cur = ggml_mul_mat(ctx, model->tok_embeddings, cur);
+        pr_info("🦙 Llama: After tied embedding projection - shape [%lld,%lld]\n", cur->ne[0], cur->ne[1]);
+    } else {
+        pr_err("🦙 Llama: No output projection available!\n");
+        return -EINVAL;
     }
     
     /* Build and execute the computation graph */
@@ -743,6 +765,13 @@ int llama_eval(struct llama_state *state,
     if (cur->ne[0] == model->hparams.n_vocab) {
         memcpy(state->logits, cur->data, 
                model->hparams.n_vocab * sizeof(float));
+        pr_info("🦙 Llama: Copied %d logits from output tensor\n", model->hparams.n_vocab);
+    } else {
+        pr_warn("🦙 Llama: Output tensor size mismatch! Expected %d, got %lld\n",
+                model->hparams.n_vocab, cur->ne[0]);
+        /* Try to copy what we can */
+        size_t copy_size = min((size_t)cur->ne[0], (size_t)model->hparams.n_vocab);
+        memcpy(state->logits, cur->data, copy_size * sizeof(float));
     }
     
     state->n_tokens = n_tokens;
@@ -773,9 +802,16 @@ int32_t llama_sample_token(struct llama_state *state) {
     }
     kernel_fpu_end();
     
-    /* Debug: print selected token */
-    pr_info("🦙 Llama: Sampled token %d (logit=%.3f)\n", 
-            best_token, best_logit);
+    /* Debug: print more info about sampling */
+    pr_info("🦙 Llama: Sampled token %d (logit=%.3f) from %d tokens\n", 
+            best_token, best_logit, n_vocab);
+    
+    /* Debug: print first few logits to see if they're all zero */
+    if (best_token == 0) {
+        pr_info("🦙 Llama: First 10 logits: %.3f %.3f %.3f %.3f %.3f %.3f %.3f %.3f %.3f %.3f\n",
+                logits[0], logits[1], logits[2], logits[3], logits[4],
+                logits[5], logits[6], logits[7], logits[8], logits[9]);
+    }
     
     return best_token;
 }
