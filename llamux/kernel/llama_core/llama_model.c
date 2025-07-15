@@ -308,11 +308,10 @@ struct llama_state *llama_state_create(struct llama_model *model) {
         goto err_free_state;
     }
     
-    /* Allocate logits buffer - use smaller vocab for kernel testing */
-    const int test_vocab = 1000; /* Reduced from 32000 for kernel memory limits */
-    state->logits = kzalloc(test_vocab * sizeof(float), GFP_KERNEL);
+    /* Allocate logits buffer for full vocabulary */
+    state->logits = kzalloc(state->n_vocab * sizeof(float), GFP_KERNEL);
     if (!state->logits) {
-        pr_err("🦙 Llama: Failed to allocate logits buffer (%d floats)\n", test_vocab);
+        pr_err("🦙 Llama: Failed to allocate logits buffer (%d floats)\n", state->n_vocab);
         goto err_free_tokens;
     }
     
