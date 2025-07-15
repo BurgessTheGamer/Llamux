@@ -9,14 +9,15 @@
 
 #include <linux/kernel.h>
 #include <linux/slab.h>
-#include <linux/vmalloc.h>
 #include <linux/string.h>
-#include <linux/sched.h>
+#include <linux/vmalloc.h>
 #include <linux/mm.h>
+#include <linux/workqueue.h>
+#include <linux/delay.h>
 #include <asm/fpu/api.h>
 #include "ggml_kernel.h"
-#include "quantize.h"
 #include "weight_cache.h"
+#include "quantize.h"
 #include "ggml_simd.h"
 #include "quantize.h"
 #include "ggml_simd.h"
@@ -680,8 +681,16 @@ struct ggml_cgraph *ggml_build_forward(struct ggml_tensor *tensor) {
 
 /* Execute computation for a single tensor */
 void ggml_compute_forward(struct ggml_tensor *tensor) {
+    static int compute_count = 0;
+    
     if (!tensor || tensor->op == GGML_OP_NONE) {
         return;
+    }
+    
+    /* Debug: log compute calls */
+    if (compute_count++ < 20 || (compute_count % 100 == 0)) {
+        pr_info("🦙 GGML: Computing node %d, op=%d, data=%p\n", 
+                compute_count, tensor->op, tensor->data);
     }
     
     /* Ensure we have data buffer */
@@ -793,23 +802,52 @@ void ggml_compute_forward(struct ggml_tensor *tensor) {
             break;
             
         case GGML_OP_GET_ROWS:
-            /* Get rows from embedding table */
+            /* Get rows from embedding table - handle quantized embeddings */
             {
-                const float *src = (float *)tensor->src0->data;
                 const int32_t *indices = (int32_t *)tensor->src1->data;
                 float *dst = (float *)tensor->data;
                 
                 const int64_t ne0 = tensor->src0->ne[0];
                 const int64_t n = tensor->src1->ne[0];
                 
-                kernel_fpu_begin();
-                for (int64_t i = 0; i < n; i++) {
-                    int32_t idx = indices[i];
-                    if (idx >= 0 && idx < tensor->src0->ne[1]) {
-                        memcpy(dst + i * ne0, src + idx * ne0, ne0 * sizeof(float));
+                if (tensor->src0->type == GGML_TYPE_F32) {
+                    /* Float embeddings - direct copy */
+                    const float *src = (float *)tensor->src0->data;
+                    kernel_fpu_begin();
+                    for (int64_t i = 0; i < n; i++) {
+                        int32_t idx = indices[i];
+                        if (idx >= 0 && idx < tensor->src0->ne[1]) {
+                            memcpy(dst + i * ne0, src + idx * ne0, ne0 * sizeof(float));
+                        }
                     }
+                    kernel_fpu_end();
+                } else if (tensor->src0->type == GGML_TYPE_Q4_K) {
+                    /* Quantized embeddings - need to dequantize */
+                    pr_info("🦙 GGML: Dequantizing embeddings for %lld tokens\n", n);
+                    
+                    for (int64_t i = 0; i < n; i++) {
+                        int32_t idx = indices[i];
+                        if (idx >= 0 && idx < tensor->src0->ne[1]) {
+                            /* Calculate offset in quantized data */
+                            size_t row_size = gguf_tensor_size(tensor->src0->type, ne0);
+                            const void *src_row = (uint8_t *)tensor->src0->data + idx * row_size;
+                            
+                            /* Dequantize this row */
+                            dequantize_row(src_row, dst + i * ne0, ne0, tensor->src0->type);
+                            
+                            /* Debug: check if dequantized values are non-zero */
+                            if (i == 0) {
+                                float *row_data = dst + i * ne0;
+                                kernel_fpu_begin();
+                                pr_info("🦙 GGML: First 5 embedding values after dequant: %.3f %.3f %.3f %.3f %.3f\n",
+                                        row_data[0], row_data[1], row_data[2], row_data[3], row_data[4]);
+                                kernel_fpu_end();
+                            }
+                        }
+                    }
+                } else {
+                    pr_err("🦙 GGML: Unsupported embedding type %d in GET_ROWS\n", tensor->src0->type);
                 }
-                kernel_fpu_end();
             }
             break;
             
@@ -858,10 +896,31 @@ void ggml_graph_compute(struct ggml_context *ctx, struct ggml_cgraph *gf) {
                 
                 node->data = (char *)ctx->mem_buffer + ctx->mem_used;
                 ctx->mem_used += ALIGN(size, GGML_TENSOR_ALIGN);
+                
+                /* Debug: log allocation */
+                if (i < 10 || (i % 100 == 0)) {
+                    pr_info("🦙 GGML: Allocated %zu bytes for node %d (op=%d) at %p\n",
+                            size, i, node->op, node->data);
+                }
+                
+                /* Initialize to zero */
+                memset(node->data, 0, size);
             }
             
             /* Compute this node */
             ggml_compute_forward(node);
+            
+            /* Debug: check output of key operations */
+            if (node->op == GGML_OP_GET_ROWS && node->data) {
+                float *data = (float *)node->data;
+                kernel_fpu_begin();
+                float sum = 0.0f;
+                for (int j = 0; j < min(10, (int)node->ne[0]); j++) {
+                    sum += data[j];
+                }
+                pr_info("🦙 GGML: GET_ROWS output sum of first 10: %.3f\n", sum);
+                kernel_fpu_end();
+            }
         }
     }
     

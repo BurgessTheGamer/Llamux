@@ -708,6 +708,13 @@ int llama_eval(struct llama_state *state,
     pr_info("🦙 Llama: Getting embeddings for %d tokens, tok_embeddings=%p\n", 
             n_tokens, model->tok_embeddings);
     
+    /* Check embeddings type */
+    if (model->tok_embeddings) {
+        pr_info("🦙 Llama: Embeddings type: %d (Q4_K=%d), shape: [%lld,%lld]\n",
+                model->tok_embeddings->type, GGML_TYPE_Q4_K,
+                model->tok_embeddings->ne[0], model->tok_embeddings->ne[1]);
+    }
+    
     struct ggml_tensor *cur = ggml_get_rows(ctx, model->tok_embeddings, embd);
     if (!cur) {
         pr_err("🦙 Llama: Failed to get embeddings! tok_embeddings=%p, embd=%p\n",
@@ -734,6 +741,9 @@ int llama_eval(struct llama_state *state,
         cur = ggml_mul(ctx, cur, model->norm);
     }
     
+    /* Note: cur->data is NULL here because graph hasn't been computed yet */
+    pr_info("🦙 Llama: Pre-output projection tensor: %p (data will be computed later)\n", cur);
+    
     /* Output projection */
     if (model->output) {
         pr_info("🦙 Llama: Output projection - input shape [%lld,%lld], output weight shape [%lld,%lld]\n",
@@ -751,6 +761,9 @@ int llama_eval(struct llama_state *state,
         return -EINVAL;
     }
     
+    /* Store the output tensor before building graph */
+    struct ggml_tensor *output_tensor = cur;
+    
     /* Build and execute the computation graph */
     struct ggml_cgraph *gf = ggml_build_forward(cur);
     if (!gf) {
@@ -758,16 +771,60 @@ int llama_eval(struct llama_state *state,
         return -EINVAL;
     }
     
-    pr_info("🦙 Llama: Executing computation graph...\n");
+    pr_info("🦙 Llama: Executing computation graph with %d nodes...\n", gf->n_nodes);
+    
+    /* Debug: Check embeddings type and data */
+    if (model->tok_embeddings) {
+        pr_info("🦙 Llama: Token embeddings type: %d (Q4_K=%d, F32=%d), data: %p\n", 
+                model->tok_embeddings->type, GGML_TYPE_Q4_K, GGML_TYPE_F32,
+                model->tok_embeddings->data);
+        
+        if (model->tok_embeddings->type != GGML_TYPE_F32) {
+            pr_warn("🦙 Llama: WARNING - Embeddings are quantized! Type %d\n", 
+                    model->tok_embeddings->type);
+        }
+    } else {
+        pr_err("🦙 Llama: ERROR - No token embeddings!\n");
+    }
+    
     ggml_graph_compute(ctx, gf);
     
+    /* Use the stored output tensor, not cur which might have changed */
+    cur = output_tensor;
+    
     /* Copy logits - check both dimensions */
-    pr_info("🦙 Llama: Final tensor shape: [%lld, %lld]\n", cur->ne[0], cur->ne[1]);
+    pr_info("🦙 Llama: Final tensor shape: [%lld, %lld], data ptr: %p\n", 
+            cur->ne[0], cur->ne[1], cur->data);
+    
+    if (!cur->data) {
+        pr_err("🦙 Llama: ERROR - Output tensor has NULL data pointer!\n");
+        return -EINVAL;
+    }
     
     /* For matrix multiplication result, vocab size might be in ne[1] */
     int64_t vocab_dim = (cur->ne[0] == 1 && cur->ne[1] == model->hparams.n_vocab) ? cur->ne[1] : cur->ne[0];
     
     if (vocab_dim == model->hparams.n_vocab) {
+        /* Check first few values before copying */
+        float *output_data = (float *)cur->data;
+        kernel_fpu_begin();
+        pr_info("🦙 Llama: Output tensor first 5 values: %.3f %.3f %.3f %.3f %.3f\n",
+                output_data[0], output_data[1], output_data[2], output_data[3], output_data[4]);
+        
+        /* Check if output tensor is all zeros */
+        int output_all_zero = 1;
+        for (int i = 0; i < min(100, (int)model->hparams.n_vocab); i++) {
+            if (output_data[i] != 0.0f) {
+                output_all_zero = 0;
+                break;
+            }
+        }
+        kernel_fpu_end();
+        
+        if (output_all_zero) {
+            pr_err("🦙 Llama: ERROR - Output tensor is ALL ZEROS! Graph computation failed!\n");
+        }
+        
         memcpy(state->logits, cur->data, 
                model->hparams.n_vocab * sizeof(float));
         pr_info("🦙 Llama: Copied %d logits from output tensor\n", model->hparams.n_vocab);
@@ -811,10 +868,24 @@ int32_t llama_sample_token(struct llama_state *state) {
     pr_info("🦙 Llama: Sampled token %d (logit=%.3f) from %d tokens\n", 
             best_token, best_logit, n_vocab);
     
+    /* Check if logits are all zeros */
+    int all_zero = 1;
+    float sum = 0.0f;
+    for (int i = 0; i < min(100, n_vocab); i++) {
+        if (logits[i] != 0.0f) {
+            all_zero = 0;
+        }
+        sum += logits[i];
+    }
+    
+    if (all_zero) {
+        pr_err("🦙 Llama: ERROR - All logits are ZERO! Model output is broken!\n");
+    }
+    
     /* Always print first few logits to debug */
-    pr_info("🦙 Llama: First 10 logits: %.3f %.3f %.3f %.3f %.3f %.3f %.3f %.3f %.3f %.3f\n",
+    pr_info("🦙 Llama: First 10 logits: %.3f %.3f %.3f %.3f %.3f %.3f %.3f %.3f %.3f %.3f (sum=%.3f)\n",
             logits[0], logits[1], logits[2], logits[3], logits[4],
-            logits[5], logits[6], logits[7], logits[8], logits[9]);
+            logits[5], logits[6], logits[7], logits[8], logits[9], sum);
     
     /* Also check some random positions to see if all are zero */
     pr_info("🦙 Llama: Logits at [100,1000,10000]: %.3f %.3f %.3f\n",

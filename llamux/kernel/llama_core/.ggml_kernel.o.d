@@ -324,6 +324,20 @@ ggml_kernel.o: /root/Llamux/llamux/kernel/llama_core/ggml_kernel.c \
  /usr/src/linux-headers-6.1.0-37-common/include/linux/vmalloc.h \
  /usr/src/linux-headers-6.1.0-37-common/arch/x86/include/asm/vmalloc.h \
  /usr/src/linux-headers-6.1.0-37-common/arch/x86/include/asm/pgtable_areas.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/mm.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/mmap_lock.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/bit_spinlock.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/shrinker.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/resource.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/uapi/linux/resource.h \
+ arch/x86/include/generated/uapi/asm/resource.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/asm-generic/resource.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/uapi/asm-generic/resource.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/page_ext.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/stacktrace.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/stackdepot.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/page_ref.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/sizes.h \
  /usr/src/linux-headers-6.1.0-37-common/include/linux/sched.h \
  /usr/src/linux-headers-6.1.0-37-common/include/uapi/linux/sched.h \
  /usr/src/linux-headers-6.1.0-37-common/include/linux/pid.h \
@@ -360,11 +374,6 @@ ggml_kernel.o: /root/Llamux/llamux/kernel/llama_core/ggml_kernel.c \
  /usr/src/linux-headers-6.1.0-37-common/arch/x86/include/asm/ia32_unistd.h \
  /usr/src/linux-headers-6.1.0-37-common/include/asm-generic/seccomp.h \
  /usr/src/linux-headers-6.1.0-37-common/include/uapi/linux/unistd.h \
- /usr/src/linux-headers-6.1.0-37-common/include/linux/resource.h \
- /usr/src/linux-headers-6.1.0-37-common/include/uapi/linux/resource.h \
- arch/x86/include/generated/uapi/asm/resource.h \
- /usr/src/linux-headers-6.1.0-37-common/include/asm-generic/resource.h \
- /usr/src/linux-headers-6.1.0-37-common/include/uapi/asm-generic/resource.h \
  /usr/src/linux-headers-6.1.0-37-common/include/linux/latencytop.h \
  /usr/src/linux-headers-6.1.0-37-common/include/linux/sched/prio.h \
  /usr/src/linux-headers-6.1.0-37-common/include/linux/sched/types.h \
@@ -384,15 +393,6 @@ ggml_kernel.o: /root/Llamux/llamux/kernel/llama_core/ggml_kernel.c \
  /usr/src/linux-headers-6.1.0-37-common/include/linux/rv.h \
  arch/x86/include/generated/asm/kmap_size.h \
  /usr/src/linux-headers-6.1.0-37-common/include/asm-generic/kmap_size.h \
- /usr/src/linux-headers-6.1.0-37-common/include/linux/mm.h \
- /usr/src/linux-headers-6.1.0-37-common/include/linux/mmap_lock.h \
- /usr/src/linux-headers-6.1.0-37-common/include/linux/bit_spinlock.h \
- /usr/src/linux-headers-6.1.0-37-common/include/linux/shrinker.h \
- /usr/src/linux-headers-6.1.0-37-common/include/linux/page_ext.h \
- /usr/src/linux-headers-6.1.0-37-common/include/linux/stacktrace.h \
- /usr/src/linux-headers-6.1.0-37-common/include/linux/stackdepot.h \
- /usr/src/linux-headers-6.1.0-37-common/include/linux/page_ref.h \
- /usr/src/linux-headers-6.1.0-37-common/include/linux/sizes.h \
  /usr/src/linux-headers-6.1.0-37-common/include/linux/pgtable.h \
  /usr/src/linux-headers-6.1.0-37-common/arch/x86/include/asm/pgtable.h \
  /usr/src/linux-headers-6.1.0-37-common/arch/x86/include/asm/pkru.h \
@@ -484,8 +484,11 @@ ggml_kernel.o: /root/Llamux/llamux/kernel/llama_core/ggml_kernel.c \
  /usr/src/linux-headers-6.1.0-37-common/include/linux/nfs_fs_i.h \
  /usr/src/linux-headers-6.1.0-37-common/include/linux/vmstat.h \
  /usr/src/linux-headers-6.1.0-37-common/include/linux/vm_event_item.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/linux/delay.h \
+ /usr/src/linux-headers-6.1.0-37-common/arch/x86/include/asm/delay.h \
+ /usr/src/linux-headers-6.1.0-37-common/include/asm-generic/delay.h \
  /root/Llamux/llamux/kernel/llama_core/ggml_kernel.h \
  /root/Llamux/llamux/kernel/llama_core/gguf_parser.h \
- /root/Llamux/llamux/kernel/llama_core/quantize.h \
  /root/Llamux/llamux/kernel/llama_core/weight_cache.h \
+ /root/Llamux/llamux/kernel/llama_core/quantize.h \
  /root/Llamux/llamux/kernel/llama_core/ggml_simd.h
