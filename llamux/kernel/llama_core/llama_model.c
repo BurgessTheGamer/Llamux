@@ -761,16 +761,21 @@ int llama_eval(struct llama_state *state,
     pr_info("🦙 Llama: Executing computation graph...\n");
     ggml_graph_compute(ctx, gf);
     
-    /* Copy logits */
-    if (cur->ne[0] == model->hparams.n_vocab) {
+    /* Copy logits - check both dimensions */
+    pr_info("🦙 Llama: Final tensor shape: [%lld, %lld]\n", cur->ne[0], cur->ne[1]);
+    
+    /* For matrix multiplication result, vocab size might be in ne[1] */
+    int64_t vocab_dim = (cur->ne[0] == 1 && cur->ne[1] == model->hparams.n_vocab) ? cur->ne[1] : cur->ne[0];
+    
+    if (vocab_dim == model->hparams.n_vocab) {
         memcpy(state->logits, cur->data, 
                model->hparams.n_vocab * sizeof(float));
         pr_info("🦙 Llama: Copied %d logits from output tensor\n", model->hparams.n_vocab);
     } else {
-        pr_warn("🦙 Llama: Output tensor size mismatch! Expected %d, got %lld\n",
-                model->hparams.n_vocab, cur->ne[0]);
+        pr_warn("🦙 Llama: Output tensor size mismatch! Expected %d, got %lld (ne[0]=%lld, ne[1]=%lld)\n",
+                model->hparams.n_vocab, vocab_dim, cur->ne[0], cur->ne[1]);
         /* Try to copy what we can */
-        size_t copy_size = min((size_t)cur->ne[0], (size_t)model->hparams.n_vocab);
+        size_t copy_size = min((size_t)vocab_dim, (size_t)model->hparams.n_vocab);
         memcpy(state->logits, cur->data, copy_size * sizeof(float));
     }
     
@@ -806,12 +811,14 @@ int32_t llama_sample_token(struct llama_state *state) {
     pr_info("🦙 Llama: Sampled token %d (logit=%.3f) from %d tokens\n", 
             best_token, best_logit, n_vocab);
     
-    /* Debug: print first few logits to see if they're all zero */
-    if (best_token == 0) {
-        pr_info("🦙 Llama: First 10 logits: %.3f %.3f %.3f %.3f %.3f %.3f %.3f %.3f %.3f %.3f\n",
-                logits[0], logits[1], logits[2], logits[3], logits[4],
-                logits[5], logits[6], logits[7], logits[8], logits[9]);
-    }
+    /* Always print first few logits to debug */
+    pr_info("🦙 Llama: First 10 logits: %.3f %.3f %.3f %.3f %.3f %.3f %.3f %.3f %.3f %.3f\n",
+            logits[0], logits[1], logits[2], logits[3], logits[4],
+            logits[5], logits[6], logits[7], logits[8], logits[9]);
+    
+    /* Also check some random positions to see if all are zero */
+    pr_info("🦙 Llama: Logits at [100,1000,10000]: %.3f %.3f %.3f\n",
+            logits[100], logits[1000], logits[10000]);
     
     return best_token;
 }

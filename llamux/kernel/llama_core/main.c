@@ -291,7 +291,7 @@ static int llama_inference_thread(void *data)
                         llama_state.current_prompt,
                         llama_state.current_response,
                         512,  /* max response length */
-                        100   /* max tokens to generate */
+                        10    /* max tokens to generate - reduced for testing */
                     );
                     
                     if (n_generated > 0) {
