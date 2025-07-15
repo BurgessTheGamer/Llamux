@@ -7,7 +7,7 @@
 obj-m += llama_core.o
 
 # Source files (don't include llama_core.o in the objects list)
-llama_core-objs := main.o gguf_parser.o memory_reserve_simple.o ggml_kernel.o ggml_kernel_fast.o tokenizer.o llama_model.o llama_proc.o quantize.o weight_cache.o
+llama_core-objs := main.o gguf_parser.o memory_reserve_simple.o ggml_kernel.o ggml_kernel_fast.o tokenizer.o llama_model.o llama_proc.o quantize.o weight_cache.o llama_accel.o
 
 # Kernel source directory (update this for your system)
 KDIR ?= /lib/modules/$(shell uname -r)/build

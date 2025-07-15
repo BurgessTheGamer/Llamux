@@ -20,6 +20,7 @@
 #include "quantize.h"
 #include "ggml_simd.h"
 #include "ggml_optimize.h"
+#include "llama_accel.h"
 
 /* Math functions for kernel space - simple approximations */
 static inline float kernel_expf(float x) {
@@ -1007,6 +1008,29 @@ void ggml_compute_forward_mul_mat_q4_0_f32(
     const struct ggml_tensor *src0,
     const struct ggml_tensor *src1,
     struct ggml_tensor *dst) {
+    
+    /* Try to use acceleration engine if available */
+    extern struct llama_accel_engine *llama_accel;
+    if (llama_accel && llama_accel->initialized && src0->type == GGML_TYPE_Q4_K) {
+        pr_info("🦙 GGML: Using acceleration for %lldx%lld Q4_K matmul\n", 
+                src0->ne[1], src1->ne[1]);
+        
+        struct llama_compute_request req = {
+            .op = LLAMA_OP_MATMUL_Q4K,
+            .src0 = src0->data,
+            .src1 = src1->data,
+            .dst = dst->data,
+            .m = src0->ne[1],
+            .n = src1->ne[1],
+            .k = src0->ne[0],
+        };
+        
+        /* For now, do synchronous compute */
+        kernel_fpu_begin();
+        llama_accel_matmul_q4k(req.src0, req.src1, req.dst, req.m, req.n, req.k);
+        kernel_fpu_end();
+        return;
+    }
     
     /* Use fast path for Q4_K - disabled for now */
     if (0 && src0->type == GGML_TYPE_Q4_K) {

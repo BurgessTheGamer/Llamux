@@ -28,6 +28,7 @@
 #include "memory_reserve.h"
 #include "ggml_kernel.h"
 #include "llama_model.h"
+#include "llama_accel.h"
 
 #define LLAMUX_VERSION "0.1.0-alpha"
 #define MODEL_RESERVED_SIZE (2ULL * 1024 * 1024 * 1024) // 2GB
@@ -647,6 +648,24 @@ static int __init llama_init(void)
         return ret;
     }
     
+    /* Initialize acceleration engine */
+    {
+        cpumask_t compute_cpus;
+        
+        /* Use CPUs 2-5 for compute (adjust based on your system) */
+        cpumask_clear(&compute_cpus);
+        cpumask_set_cpu(2, &compute_cpus);
+        cpumask_set_cpu(3, &compute_cpus);
+        cpumask_set_cpu(4, &compute_cpus);
+        cpumask_set_cpu(5, &compute_cpus);
+        
+        ret = llama_accel_init(&compute_cpus);
+        if (ret) {
+            pr_warn("🦙 Llamux: Failed to init acceleration (%d), continuing without\n", ret);
+            /* Not fatal - we can run without acceleration */
+        }
+    }
+    
     /* Allocate prompt/response buffers */
     llama_state.current_prompt = kzalloc(512, GFP_KERNEL);
     llama_state.current_response = kzalloc(512, GFP_KERNEL);
@@ -706,6 +725,9 @@ static void __exit llama_exit(void)
     kfree(llama_state.current_response);
     llama_state.current_prompt = NULL;
     llama_state.current_response = NULL;
+    
+    /* Cleanup acceleration engine */
+    llama_accel_cleanup();
     
     /* Unload model */
     llama_unload_model();
