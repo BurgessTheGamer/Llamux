@@ -11,6 +11,7 @@
 #include <linux/types.h>
 #include "ggml_kernel.h"
 #include "tokenizer.h"
+#include "weight_cache.h"
 
 /* Forward declaration */
 struct gguf_model;
@@ -81,6 +82,9 @@ struct llama_model {
     
     /* Tokenizer */
     struct llama_tokenizer tokenizer;
+    
+    /* Weight cache for fast inference */
+    struct llama_weight_cache *weight_cache;
 };
 
 /* KV cache for inference */

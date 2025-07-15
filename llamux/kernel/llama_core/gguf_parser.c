@@ -176,6 +176,8 @@ int gguf_parse_metadata(const void *data, size_t size, struct gguf_model *model)
         ptr += sizeof(u32);
         
         /* Parse specific keys we care about */
+        pr_debug("🦙 Llamux: Processing key: %s (type=%u)\n", key, value_type);
+        
         if (strcmp(key, "general.name") == 0 && value_type == GGUF_TYPE_STRING) {
             ptr = read_gguf_string(ptr, &model->model_name);
         } else if (strcmp(key, "general.architecture") == 0 && value_type == GGUF_TYPE_STRING) {
@@ -201,6 +203,89 @@ int gguf_parse_metadata(const void *data, size_t size, struct gguf_model *model)
         } else if (strcmp(key, "llama.rope.dimension_count") == 0 && value_type == GGUF_TYPE_UINT32) {
             memcpy(&model->rope_dimension_count, ptr, sizeof(u32));
             ptr += sizeof(u32);
+        } else if (strcmp(key, "tokenizer.ggml.tokens") == 0 && value_type == GGUF_TYPE_ARRAY) {
+            /* Parse tokenizer vocabulary array */
+            u32 arr_type;
+            u64 arr_len;
+            memcpy(&arr_type, ptr, sizeof(u32));
+            ptr += sizeof(u32);
+            memcpy(&arr_len, ptr, sizeof(u64));
+            ptr += sizeof(u64);
+            
+            /* Set vocab_size from the tokens array length */
+            model->vocab_size = (u32)arr_len;
+            pr_info("🦙 Llamux: Found vocabulary with %u tokens\n", model->vocab_size);
+            
+            /* Allocate memory for vocabulary */
+            if (arr_type == GGUF_TYPE_STRING) {
+                model->vocab_tokens = kzalloc(arr_len * sizeof(char*), GFP_KERNEL);
+                if (!model->vocab_tokens) {
+                    pr_err("🦙 Llamux: Failed to allocate vocabulary memory\n");
+                    kfree(key);
+                    return -ENOMEM;
+                }
+                
+                /* Extract all token strings */
+                for (u64 j = 0; j < arr_len; j++) {
+                    u64 str_len;
+                    if (ptr + sizeof(u64) > end) {
+                        pr_err("🦙 Llamux: Token array out of bounds\n");
+                        kfree(key);
+                        return -EINVAL;
+                    }
+                    memcpy(&str_len, ptr, sizeof(u64));
+                    ptr += sizeof(u64);
+                    
+                    if (ptr + str_len > end) {
+                        pr_err("🦙 Llamux: Token string out of bounds\n");
+                        kfree(key);
+                        return -EINVAL;
+                    }
+                    
+                    /* Allocate and copy token string */
+                    model->vocab_tokens[j] = kzalloc(str_len + 1, GFP_KERNEL);
+                    if (!model->vocab_tokens[j]) {
+                        pr_err("🦙 Llamux: Failed to allocate token string\n");
+                        kfree(key);
+                        return -ENOMEM;
+                    }
+                    memcpy(model->vocab_tokens[j], ptr, str_len);
+                    model->vocab_tokens[j][str_len] = '\0';
+                    
+                    /* Log first few tokens for debugging */
+                    if (j < 10) {
+                        pr_info("🦙 Llamux: Token[%llu] = '%s'\n", j, model->vocab_tokens[j]);
+                    }
+                    
+                    ptr += str_len;
+                }
+                pr_info("🦙 Llamux: Successfully loaded %u vocabulary tokens\n", model->vocab_size);
+            } else {
+                pr_warn("🦙 Llamux: Unexpected tokenizer.ggml.tokens array type %u\n", arr_type);
+            }
+        } else if (strcmp(key, "tokenizer.ggml.bos_token_id") == 0 && value_type == GGUF_TYPE_UINT32) {
+            memcpy(&model->bos_token_id, ptr, sizeof(u32));
+            ptr += sizeof(u32);
+            pr_info("🦙 Llamux: BOS token ID: %u\n", model->bos_token_id);
+        } else if (strcmp(key, "tokenizer.ggml.eos_token_id") == 0 && value_type == GGUF_TYPE_UINT32) {
+            memcpy(&model->eos_token_id, ptr, sizeof(u32));
+            ptr += sizeof(u32);
+            pr_info("🦙 Llamux: EOS token ID: %u\n", model->eos_token_id);
+        } else if (strcmp(key, "tokenizer.ggml.unknown_token_id") == 0 && value_type == GGUF_TYPE_UINT32) {
+            memcpy(&model->unk_token_id, ptr, sizeof(u32));
+            ptr += sizeof(u32);
+            pr_info("🦙 Llamux: Unknown token ID: %u\n", model->unk_token_id);
+        } else if (strcmp(key, "tokenizer.ggml.padding_token_id") == 0 && value_type == GGUF_TYPE_UINT32) {
+            memcpy(&model->pad_token_id, ptr, sizeof(u32));
+            ptr += sizeof(u32);
+            pr_info("🦙 Llamux: Padding token ID: %u\n", model->pad_token_id);
+        } else if (strcmp(key, "tokenizer.ggml.model") == 0 && value_type == GGUF_TYPE_STRING) {
+            char *tokenizer_model = NULL;
+            ptr = read_gguf_string(ptr, &tokenizer_model);
+            if (tokenizer_model) {
+                pr_info("🦙 Llamux: Tokenizer model: %s\n", tokenizer_model);
+                kfree(tokenizer_model);
+            }
         } else {
             /* Skip unknown metadata - need to properly parse value to advance pointer */
             switch (value_type) {
@@ -398,28 +483,7 @@ int gguf_validate_model(struct gguf_model *model)
     return 0;
 }
 
-/* Free model resources */
-void gguf_free_model(struct gguf_model *model)
-{
-    u64 i;
-    
-    if (!model)
-        return;
-    
-    /* Free strings */
-    kfree(model->model_name);
-    kfree(model->model_arch);
-    
-    /* Free tensor info */
-    if (model->tensors) {
-        for (i = 0; i < model->tensor_count; i++) {
-            kfree(model->tensors[i].name);
-        }
-        kfree(model->tensors);
-    }
-    
-    /* Note: model->data should be freed by caller */
-}
+/* Forward declaration - gguf_free_model is implemented later in file */
 
 /* Load tensor data from GGUF file */
 int gguf_load_tensor_data(const void *file_data, size_t file_size, struct gguf_model *model, void *tensor_memory, size_t memory_size)
@@ -577,5 +641,39 @@ size_t gguf_tensor_size(enum ggml_type type, int64_t n_elements) {
         default:
             pr_warn("🦙 Llamux: Unknown tensor type %d\n", type);
             return 0;
+    }
+}
+
+/* Free GGUF model resources */
+void gguf_free_model(struct gguf_model *model) {
+    if (!model)
+        return;
+    
+    /* Free vocabulary tokens */
+    if (model->vocab_tokens) {
+        for (u32 i = 0; i < model->vocab_size; i++) {
+            if (model->vocab_tokens[i])
+                kfree(model->vocab_tokens[i]);
+        }
+        kfree(model->vocab_tokens);
+    }
+    
+    /* Free vocabulary scores if allocated */
+    if (model->vocab_scores)
+        kfree(model->vocab_scores);
+    
+    /* Free model metadata strings */
+    if (model->model_name)
+        kfree(model->model_name);
+    if (model->model_arch)
+        kfree(model->model_arch);
+    
+    /* Free tensor info */
+    if (model->tensors) {
+        for (u64 i = 0; i < model->tensor_count; i++) {
+            if (model->tensors[i].name)
+                kfree(model->tensors[i].name);
+        }
+        kfree(model->tensors);
     }
 }

@@ -101,6 +101,14 @@ struct gguf_model {
     u32 feed_forward_length;
     u32 rope_dimension_count;
     
+    /* Tokenizer data */
+    char **vocab_tokens;      /* Array of token strings */
+    float *vocab_scores;      /* Array of token scores */
+    u32 bos_token_id;
+    u32 eos_token_id;
+    u32 unk_token_id;
+    u32 pad_token_id;
+    
     /* Tensors */
     struct gguf_tensor_info *tensors;
     u64 tensor_count;

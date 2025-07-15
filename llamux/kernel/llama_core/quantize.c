@@ -15,8 +15,8 @@ void dequantize_q4_K(const struct block_q4_K *x, float *y, int k) {
     for (int i = 0; i < nb; i++) {
         const struct block_q4_K *block = &x[i];
         
-        /* Be a good citizen - yield CPU if needed */
-        if (i > 0 && (i % 16) == 0) {
+        /* Be a good citizen - yield CPU if needed (but less often) */
+        if (i > 0 && (i % 256) == 0) {
             if (need_resched()) {
                 cond_resched();
             }
@@ -42,18 +42,21 @@ void dequantize_q4_K(const struct block_q4_K *x, float *y, int k) {
         }
         
         /* Dequantize values - 16 groups of 16 values each */
+        float *dst = y + i*QK_K;
         for (int j = 0; j < 16; j++) {
             const float scale = d * scales[j] + dmin;
-            const int offset = j * 16;
+            const uint8_t *src = &block->qs[j * 8];
             
-            /* Process 16 values (8 bytes) in this group */
-            for (int l = 0; l < 8; l++) {
-                const uint8_t vi = block->qs[offset/2 + l];
-                const int8_t vi0 = (vi & 0xF) - 8;  /* 4-bit to signed */
-                const int8_t vi1 = (vi >> 4) - 8;   /* 4-bit to signed */
+            /* Unroll inner loop for speed */
+            for (int l = 0; l < 8; l += 2) {
+                /* Process 4 values at once */
+                const uint8_t vi0 = src[l];
+                const uint8_t vi1 = src[l + 1];
                 
-                y[i*QK_K + offset + l*2 + 0] = scale * vi0;
-                y[i*QK_K + offset + l*2 + 1] = scale * vi1;
+                dst[j*16 + l*2 + 0] = scale * ((int8_t)(vi0 & 0xF) - 8);
+                dst[j*16 + l*2 + 1] = scale * ((int8_t)(vi0 >> 4) - 8);
+                dst[j*16 + l*2 + 2] = scale * ((int8_t)(vi1 & 0xF) - 8);
+                dst[j*16 + l*2 + 3] = scale * ((int8_t)(vi1 >> 4) - 8);
             }
         }
     }

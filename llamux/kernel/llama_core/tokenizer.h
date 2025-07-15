@@ -41,6 +41,9 @@ struct llama_tokenizer {
 
 /* Function prototypes */
 int llama_tokenizer_init(struct llama_tokenizer *tokenizer);
+int llama_tokenizer_init_from_gguf(struct llama_tokenizer *tokenizer, 
+                                   char **vocab_tokens, u32 vocab_size,
+                                   u32 bos_id, u32 eos_id, u32 unk_id, u32 pad_id);
 void llama_tokenizer_free(struct llama_tokenizer *tokenizer);
 
 /* Tokenization functions */

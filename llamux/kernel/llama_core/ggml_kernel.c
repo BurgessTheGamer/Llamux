@@ -16,6 +16,8 @@
 #include <asm/fpu/api.h>
 #include "ggml_kernel.h"
 #include "quantize.h"
+#include "weight_cache.h"
+#include "ggml_simd.h"
 #include "quantize.h"
 #include "ggml_simd.h"
 
@@ -834,8 +836,8 @@ void ggml_graph_compute(struct ggml_context *ctx, struct ggml_cgraph *gf) {
     for (int i = 0; i < max_nodes; i++) {
         struct ggml_tensor *node = gf->nodes[i];
         
-        /* Progress indicator every 100 nodes */
-        if (i % 100 == 0 && i > 0) {
+        /* Progress indicator every 250 nodes (less spam) */
+        if (i % 250 == 0 && i > 0) {
             pr_info("🦙 GGML: Progress: %d/%d nodes\n", i, max_nodes);
         }
         
@@ -868,10 +870,40 @@ void ggml_graph_compute(struct ggml_context *ctx, struct ggml_cgraph *gf) {
             ctx->mem_used / (1024*1024), ctx->mem_size / (1024*1024));
 }
 
+/* Global weight cache for optimization */
+static struct llama_weight_cache *g_weight_cache = NULL;
+static DEFINE_MUTEX(g_cache_mutex);
+
+/* Parallel processing support */
+#include <linux/workqueue.h>
+#include <linux/percpu.h>
+
+struct matmul_work {
+    struct work_struct work;
+    const float *a;
+    const float *b;
+    float *c;
+    int start_row;
+    int end_row;
+    int n_cols;
+    int inner_dim;
+    atomic_t *completed;
+};
+
+static struct workqueue_struct *ggml_wq = NULL;
+
+/* Set global weight cache */
+void ggml_set_weight_cache(struct llama_weight_cache *cache) {
+    mutex_lock(&g_cache_mutex);
+    g_weight_cache = cache;
+    mutex_unlock(&g_cache_mutex);
+}
+
 /* Export new symbols */
 EXPORT_SYMBOL_GPL(ggml_build_forward);
 EXPORT_SYMBOL_GPL(ggml_graph_compute);
 EXPORT_SYMBOL_GPL(ggml_compute_forward);
+EXPORT_SYMBOL_GPL(ggml_set_weight_cache);
 
 
 /* Quantized matrix multiplication stub */
@@ -886,53 +918,114 @@ void ggml_compute_forward_mul_mat_q4_0_f32(
     const int64_t ne10 = src1->ne[0];
     const int64_t ne11 = src1->ne[1];
     
-    /* Allocate temporary buffer for dequantized row */
-    float *row_buf = kvmalloc(ne00 * sizeof(float), GFP_KERNEL);
-    if (!row_buf) {
-        pr_err("🦙 GGML: Failed to allocate dequant buffer\n");
-        return;
-    }
+    /* Check if we have a global weight cache and this is a weight tensor */
+    float *cached_weights = NULL;
+    bool use_cache = false;
     
-    kernel_fpu_begin();
-    
-    /* Matrix multiplication with on-the-fly dequantization */
-    for (int64_t i = 0; i < ne01; i++) {
-        /* Be nice - yield CPU periodically */
-        if (i > 0 && (i % 32) == 0) {
-            kernel_fpu_end();
-            if (need_resched()) {
-                cond_resched();
-            }
-            kernel_fpu_begin();
+    mutex_lock(&g_cache_mutex);
+    if (g_weight_cache && src0->op == GGML_OP_NONE && src0->type != GGML_TYPE_F32) {
+        /* This looks like a weight tensor - check if it has a name */
+        static int debug_count = 0;
+        if (debug_count++ < 10) {
+            pr_info("🦙 GGML: Weight tensor check - name: '%s', type: %d\n", 
+                    src0->name[0] ? src0->name : "(empty)", src0->type);
         }
-        
-        /* Debug progress for large matrices */
-        if (ne01 > 1000 && i > 0 && (i % 1000) == 0) {
-            pr_info("🦙 GGML: MulMat progress: %lld/%lld rows\n", i, ne01);
-        }
-        
-        /* Dequantize one row of src0 */
-        const void *row_quant = (char *)src0->data + i * src0->nb[1];
-        dequantize_row(row_quant, row_buf, ne00, src0->type);
-        
-        /* Multiply dequantized row with src1 */
-        for (int64_t j = 0; j < ne11; j++) {
-            float sum = 0.0f;
-            const float *src1_col = (float *)src1->data + j * ne10;
+        if (src0->name[0] != '\0') {
+            /* Parse layer and type from name like "blk.0.attn_q.weight" */
+            int layer = 0;
+            enum weight_type type = WEIGHT_WQ;
             
-            /* Dot product */
-            for (int64_t k = 0; k < ne00; k++) {
-                sum += row_buf[k] * src1_col[k];
+            if (sscanf(src0->name, "blk.%d.", &layer) == 1) {
+                /* Determine weight type from name */
+                if (strstr(src0->name, "attn_q")) type = WEIGHT_WQ;
+                else if (strstr(src0->name, "attn_k")) type = WEIGHT_WK;
+                else if (strstr(src0->name, "attn_v")) type = WEIGHT_WV;
+                else if (strstr(src0->name, "attn_output")) type = WEIGHT_WO;
+                else if (strstr(src0->name, "ffn_gate")) type = WEIGHT_W1;
+                else if (strstr(src0->name, "ffn_down")) type = WEIGHT_W2;
+                else if (strstr(src0->name, "ffn_up")) type = WEIGHT_W3;
+                
+                cached_weights = llama_weight_cache_get(g_weight_cache, 
+                                                       layer, type,
+                                                       src0->data, ne00 * ne01, src0->type);
+                if (cached_weights) {
+                    use_cache = true;
+                    pr_info("🦙 GGML: Using cached weights for %s\n", src0->name);
+                }
             }
-            
-            /* Store result */
-            float *dst_ptr = (float *)dst->data + i * ne11 + j;
-            *dst_ptr = sum;
         }
     }
+    mutex_unlock(&g_cache_mutex);
     
-    kernel_fpu_end();
-    kvfree(row_buf);
+    if (use_cache && cached_weights) {
+        /* Fast path - use pre-dequantized weights */
+        kernel_fpu_begin();
+        
+        for (int64_t i = 0; i < ne01; i++) {
+            if (i > 0 && (i % 256) == 0) {
+                kernel_fpu_end();
+                if (need_resched()) {
+                    cond_resched();
+                }
+                kernel_fpu_begin();
+            }
+            
+            const float *weight_row = cached_weights + i * ne00;
+            
+            for (int64_t j = 0; j < ne11; j++) {
+                float sum = 0.0f;
+                const float *src1_col = (float *)src1->data + j * ne10;
+                
+                /* Use optimized SIMD dot product */
+                sum = ggml_vec_dot_f32(weight_row, src1_col, ne00);
+                
+                float *dst_ptr = (float *)dst->data + i * ne11 + j;
+                *dst_ptr = sum;
+            }
+        }
+        
+        kernel_fpu_end();
+    } else {
+        /* Slow path - dequantize on the fly */
+        float *row_buf = kvmalloc(ne00 * sizeof(float), GFP_KERNEL);
+        if (!row_buf) {
+            pr_err("🦙 GGML: Failed to allocate dequant buffer\n");
+            return;
+        }
+        
+        kernel_fpu_begin();
+        
+        for (int64_t i = 0; i < ne01; i++) {
+            if (i > 0 && (i % 128) == 0) {
+                kernel_fpu_end();
+                if (need_resched()) {
+                    cond_resched();
+                }
+                kernel_fpu_begin();
+            }
+            
+            if (ne01 > 1000 && i > 0 && (i % 1000) == 0) {
+                pr_info("🦙 GGML: MulMat progress: %lld/%lld rows\n", i, ne01);
+            }
+            
+            const void *row_quant = (char *)src0->data + i * src0->nb[1];
+            dequantize_row(row_quant, row_buf, ne00, src0->type);
+            
+            for (int64_t j = 0; j < ne11; j++) {
+                float sum = 0.0f;
+                const float *src1_col = (float *)src1->data + j * ne10;
+                
+                /* Use optimized SIMD dot product */
+                sum = ggml_vec_dot_f32(row_buf, src1_col, ne00);
+                
+                float *dst_ptr = (float *)dst->data + i * ne11 + j;
+                *dst_ptr = sum;
+            }
+        }
+        
+        kernel_fpu_end();
+        kvfree(row_buf);
+    }
 }
 
 

@@ -1,1 +1,0 @@
-cmd_/root/Llamux/llamux/kernel/llama_core/Module.symvers :=  sed 's/ko$$/o/'  /root/Llamux/llamux/kernel/llama_core/modules.order | scripts/mod/modpost -m      -o /root/Llamux/llamux/kernel/llama_core/Module.symvers -e -i Module.symvers -T - 

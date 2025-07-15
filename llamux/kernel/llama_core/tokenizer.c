@@ -112,6 +112,64 @@ int llama_tokenizer_init(struct llama_tokenizer *tokenizer) {
     return 0;
 }
 
+/* Initialize tokenizer from GGUF vocabulary */
+int llama_tokenizer_init_from_gguf(struct llama_tokenizer *tokenizer,
+                                   char **vocab_tokens, u32 vocab_size,
+                                   u32 bos_id, u32 eos_id, u32 unk_id, u32 pad_id) {
+    if (!tokenizer || !vocab_tokens || vocab_size == 0) {
+        return -EINVAL;
+    }
+    
+    /* Allocate vocabulary */
+    tokenizer->vocab = kzalloc(sizeof(struct llama_vocab), GFP_KERNEL);
+    if (!tokenizer->vocab) {
+        return -ENOMEM;
+    }
+    
+    /* Allocate token array */
+    tokenizer->vocab->tokens = kzalloc(vocab_size * sizeof(struct llama_token), 
+                                      GFP_KERNEL);
+    if (!tokenizer->vocab->tokens) {
+        kfree(tokenizer->vocab);
+        return -ENOMEM;
+    }
+    
+    /* Set vocabulary size and special tokens */
+    tokenizer->vocab->n_vocab = vocab_size;
+    tokenizer->vocab->bos_token_id = bos_id;
+    tokenizer->vocab->eos_token_id = eos_id;
+    tokenizer->vocab->unk_token_id = unk_id;
+    tokenizer->vocab->pad_token_id = pad_id;
+    
+    /* Copy tokens from GGUF vocabulary */
+    for (u32 i = 0; i < vocab_size; i++) {
+        tokenizer->vocab->tokens[i].id = i;
+        if (vocab_tokens[i]) {
+            strncpy(tokenizer->vocab->tokens[i].text, vocab_tokens[i], 
+                    MAX_TOKEN_LENGTH - 1);
+            tokenizer->vocab->tokens[i].text[MAX_TOKEN_LENGTH - 1] = '\0';
+        } else {
+            /* Handle null token */
+            snprintf(tokenizer->vocab->tokens[i].text, MAX_TOKEN_LENGTH, 
+                     "<token_%d>", i);
+        }
+        tokenizer->vocab->tokens[i].score = 1.0f;
+    }
+    
+    tokenizer->initialized = true;
+    
+    pr_info("🦙 Tokenizer: Initialized from GGUF with %u tokens\n", vocab_size);
+    pr_info("🦙 Tokenizer: Special tokens - BOS:%u, EOS:%u, UNK:%u, PAD:%u\n",
+            bos_id, eos_id, unk_id, pad_id);
+    
+    /* Log some sample tokens */
+    for (u32 i = 0; i < 20 && i < vocab_size; i++) {
+        pr_info("🦙 Token[%u]: '%s'\n", i, tokenizer->vocab->tokens[i].text);
+    }
+    
+    return 0;
+}
+
 /* Free tokenizer */
 void llama_tokenizer_free(struct llama_tokenizer *tokenizer) {
     if (!tokenizer || !tokenizer->initialized) {
@@ -244,8 +302,81 @@ int llama_tokenize(struct llama_tokenizer *tokenizer,
         return llama_tokenize_simple(text, tokens, max_tokens);
     }
     
-    /* TODO: Implement BPE or other proper tokenization */
-    return llama_tokenize_simple(text, tokens, max_tokens);
+    /* For now, use simple word-based tokenization with real vocabulary */
+    int n_tokens = 0;
+    const char *p = text;
+    char word[MAX_TOKEN_LENGTH];
+    int word_len = 0;
+    
+    if (!text || !tokens || max_tokens <= 0) {
+        return -EINVAL;
+    }
+    
+    /* Add BOS token */
+    if (n_tokens < max_tokens) {
+        tokens[n_tokens++] = tokenizer->vocab->bos_token_id;
+    }
+    
+    /* Simple word splitting with real vocabulary lookup */
+    while (*p && n_tokens < max_tokens - 1) {
+        if (isspace(*p)) {
+            if (word_len > 0) {
+                /* End of word */
+                word[word_len] = '\0';
+                
+                /* Find token in vocabulary - simple linear search for now */
+                int token_id = tokenizer->vocab->unk_token_id;
+                for (int i = 0; i < tokenizer->vocab->n_vocab; i++) {
+                    if (strcmp(word, tokenizer->vocab->tokens[i].text) == 0) {
+                        token_id = i;
+                        break;
+                    }
+                }
+                
+                tokens[n_tokens++] = token_id;
+                word_len = 0;
+                
+                /* Look for space token in vocabulary */
+                if (n_tokens < max_tokens - 1 && *(p + 1) != '\0') {
+                    /* Try to find a space token */
+                    for (int i = 0; i < tokenizer->vocab->n_vocab && i < 1000; i++) {
+                        if (tokenizer->vocab->tokens[i].text[0] == ' ' &&
+                            tokenizer->vocab->tokens[i].text[1] == '\0') {
+                            tokens[n_tokens++] = i;
+                            break;
+                        }
+                    }
+                }
+            }
+            p++;
+        } else {
+            /* Add character to current word */
+            if (word_len < MAX_TOKEN_LENGTH - 1) {
+                word[word_len++] = *p;
+            }
+            p++;
+        }
+    }
+    
+    /* Handle last word */
+    if (word_len > 0 && n_tokens < max_tokens - 1) {
+        word[word_len] = '\0';
+        int token_id = tokenizer->vocab->unk_token_id;
+        for (int i = 0; i < tokenizer->vocab->n_vocab; i++) {
+            if (strcmp(word, tokenizer->vocab->tokens[i].text) == 0) {
+                token_id = i;
+                break;
+            }
+        }
+        tokens[n_tokens++] = token_id;
+    }
+    
+    /* Add EOS token */
+    if (n_tokens < max_tokens) {
+        tokens[n_tokens++] = tokenizer->vocab->eos_token_id;
+    }
+    
+    return n_tokens;
 }
 
 /* Full detokenization using vocabulary */

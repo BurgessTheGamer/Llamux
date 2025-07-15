@@ -1,1 +1,0 @@
-cmd_/root/Llamux/llamux/kernel/llama_core/llama_core.ko := ld -r -m elf_x86_64 -z noexecstack --no-warn-rwx-segments --build-id=sha1  -T arch/x86/module.lds -o /root/Llamux/llamux/kernel/llama_core/llama_core.ko /root/Llamux/llamux/kernel/llama_core/llama_core.o /root/Llamux/llamux/kernel/llama_core/llama_core.mod.o;  true

@@ -39,6 +39,38 @@ MODULE_AUTHOR("Llamux Project");
 MODULE_DESCRIPTION("Llamux Core - LLM in the Linux Kernel");
 MODULE_VERSION(LLAMUX_VERSION);
 
+/* Performance statistics */
+struct llamux_stats {
+    /* Token generation stats */
+    atomic64_t total_tokens_generated;
+    atomic64_t total_inference_time_ms;
+    atomic_t current_tokens_per_sec;
+    atomic64_t last_inference_start;
+    atomic_t last_batch_tokens;
+    
+    /* Cache stats */
+    atomic64_t cache_hits;
+    atomic64_t cache_misses;
+    
+    /* Request stats */
+    atomic64_t total_requests;
+    atomic64_t failed_requests;
+    
+    /* Memory stats */
+    atomic64_t peak_memory_used;
+} llamux_perf_stats = {
+    .total_tokens_generated = ATOMIC64_INIT(0),
+    .total_inference_time_ms = ATOMIC64_INIT(0),
+    .current_tokens_per_sec = ATOMIC_INIT(0),
+    .last_inference_start = ATOMIC64_INIT(0),
+    .last_batch_tokens = ATOMIC_INIT(0),
+    .cache_hits = ATOMIC64_INIT(0),
+    .cache_misses = ATOMIC64_INIT(0),
+    .total_requests = ATOMIC64_INIT(0),
+    .failed_requests = ATOMIC64_INIT(0),
+    .peak_memory_used = ATOMIC64_INIT(0)
+};
+
 /* Global state */
 struct {
     bool initialized;
@@ -142,8 +174,85 @@ static int llamux_status_open(struct inode *inode, struct file *file)
     return single_open(file, llamux_status_show, NULL);
 }
 
+/*
+ * Display real-time performance stats via /proc/llamux/stats
+ */
+static int llamux_stats_show(struct seq_file *m, void *v)
+{
+    u64 total_tokens = atomic64_read(&llamux_perf_stats.total_tokens_generated);
+    u64 total_time_ms = atomic64_read(&llamux_perf_stats.total_inference_time_ms);
+    u64 cache_hits = atomic64_read(&llamux_perf_stats.cache_hits);
+    u64 cache_misses = atomic64_read(&llamux_perf_stats.cache_misses);
+    u64 total_requests = atomic64_read(&llamux_perf_stats.total_requests);
+    u64 failed_requests = atomic64_read(&llamux_perf_stats.failed_requests);
+    int current_tps = atomic_read(&llamux_perf_stats.current_tokens_per_sec);
+    
+    seq_printf(m, "🦙 Llamux Performance Statistics\n");
+    seq_printf(m, "================================\n\n");
+    
+    seq_printf(m, "Token Generation:\n");
+    seq_printf(m, "  Total Tokens Generated: %llu\n", total_tokens);
+    seq_printf(m, "  Total Inference Time: %llu ms\n", total_time_ms);
+    if (total_time_ms > 0) {
+        seq_printf(m, "  Average Speed: %.2f tokens/sec\n", 
+                   (total_tokens * 1000.0) / total_time_ms);
+    }
+    seq_printf(m, "  Current Speed: %d tokens/sec\n", current_tps);
+    seq_printf(m, "\n");
+    
+    seq_printf(m, "Weight Cache Performance:\n");
+    seq_printf(m, "  Cache Hits: %llu\n", cache_hits);
+    seq_printf(m, "  Cache Misses: %llu\n", cache_misses);
+    if (cache_hits + cache_misses > 0) {
+        seq_printf(m, "  Hit Rate: %.1f%%\n", 
+                   (cache_hits * 100.0) / (cache_hits + cache_misses));
+    }
+    seq_printf(m, "\n");
+    
+    seq_printf(m, "Request Statistics:\n");
+    seq_printf(m, "  Total Requests: %llu\n", total_requests);
+    seq_printf(m, "  Failed Requests: %llu\n", failed_requests);
+    if (total_requests > 0) {
+        seq_printf(m, "  Success Rate: %.1f%%\n",
+                   ((total_requests - failed_requests) * 100.0) / total_requests);
+    }
+    seq_printf(m, "\n");
+    
+    seq_printf(m, "Memory Usage:\n");
+    if (llama_state.ggml_ctx) {
+        seq_printf(m, "  GGML Context: %zu MB\n", 
+                   llama_state.ggml_ctx->mem_used / (1024*1024));
+    }
+    seq_printf(m, "  Peak Memory: %llu MB\n", 
+               atomic64_read(&llamux_perf_stats.peak_memory_used) / (1024*1024));
+    
+    if (llama_state.llama && llama_state.llama->weight_cache) {
+        struct llama_weight_cache *cache = llama_state.llama->weight_cache;
+        seq_printf(m, "\nWeight Cache Details:\n");
+        seq_printf(m, "  Max Cache Size: %zu MB\n", cache->max_cache_size / (1024*1024));
+        seq_printf(m, "  Cache Used: %zu MB\n", 
+                   cache->total_cache_size / (1024*1024));
+        seq_printf(m, "  Cache Hits: %d\n", atomic_read(&cache->cache_hits));
+        seq_printf(m, "  Cache Misses: %d\n", atomic_read(&cache->cache_misses));
+    }
+    
+    return 0;
+}
+
+static int llamux_stats_open(struct inode *inode, struct file *file)
+{
+    return single_open(file, llamux_stats_show, NULL);
+}
+
 static const struct proc_ops llamux_status_fops = {
     .proc_open = llamux_status_open,
+    .proc_read = seq_read,
+    .proc_lseek = seq_lseek,
+    .proc_release = single_release,
+};
+
+static const struct proc_ops llamux_stats_fops = {
+    .proc_open = llamux_stats_open,
     .proc_read = seq_read,
     .proc_lseek = seq_lseek,
     .proc_release = single_release,
@@ -507,6 +616,13 @@ static int __init llama_init(void)
     /* Create /proc/llamux/status */
     if (!proc_create("status", 0444, llamux_proc_dir, &llamux_status_fops)) {
         pr_err("🦙 Llamux: Failed to create /proc/llamux/status\n");
+        proc_remove(llamux_proc_dir);
+        return -ENOMEM;
+    }
+    
+    /* Create /proc/llamux/stats */
+    if (!proc_create("stats", 0444, llamux_proc_dir, &llamux_stats_fops)) {
+        pr_err("🦙 Llamux: Failed to create /proc/llamux/stats\n");
         proc_remove(llamux_proc_dir);
         return -ENOMEM;
     }

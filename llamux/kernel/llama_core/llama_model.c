@@ -9,10 +9,12 @@
 #include <linux/slab.h>
 #include <linux/string.h>
 #include <linux/random.h>
+#include <linux/ktime.h>
 #include <asm/fpu/api.h>
 #include "llama_model.h"
 #include "ggml_kernel.h"
 #include "gguf_parser.h"
+#include "llamux_stats.h"
 
 /* Create model structure from GGUF data */
 struct llama_model *llama_model_create_from_gguf(struct ggml_context *ctx, struct gguf_model *gguf) {
@@ -31,7 +33,7 @@ struct llama_model *llama_model_create_from_gguf(struct ggml_context *ctx, struc
     }
     
     /* Set hyperparameters from GGUF */
-    model->hparams.n_vocab = 32000; /* Default, should be in metadata */
+    model->hparams.n_vocab = gguf->vocab_size ?: 32000; /* Use GGUF vocab_size or default */
     model->hparams.n_ctx = gguf->context_length;
     model->hparams.n_embd = gguf->embedding_length;
     model->hparams.n_head = gguf->n_heads;
@@ -90,6 +92,21 @@ struct llama_model *llama_model_create_from_gguf(struct ggml_context *ctx, struc
         pr_warn("🦙 Llama: Output projection not found\n");
     }
     
+    /* Initialize tokenizer with GGUF vocabulary if available */
+    if (gguf->vocab_tokens && gguf->vocab_size > 0) {
+        pr_info("🦙 Llama: Initializing tokenizer with GGUF vocabulary (%u tokens)\n", gguf->vocab_size);
+        if (llama_tokenizer_init_from_gguf(&model->tokenizer, 
+                                          gguf->vocab_tokens, gguf->vocab_size,
+                                          gguf->bos_token_id, gguf->eos_token_id,
+                                          gguf->unk_token_id, gguf->pad_token_id) != 0) {
+            pr_warn("🦙 Llama: Failed to init tokenizer from GGUF, using simple tokenizer\n");
+            llama_tokenizer_init(&model->tokenizer);
+        }
+    } else {
+        pr_info("🦙 Llama: No vocabulary in GGUF, using simple tokenizer\n");
+        llama_tokenizer_init(&model->tokenizer);
+    }
+    
     /* Map layer weights */
     for (i = 0; i < model->hparams.n_layer; i++) {
         struct llama_layer *layer = &model->layers[i];
@@ -100,31 +117,38 @@ struct llama_model *llama_model_create_from_gguf(struct ggml_context *ctx, struc
         snprintf(tensor_name, sizeof(tensor_name), "blk.%d.attn_q.weight", i);
         gguf_tensor = gguf_find_tensor(gguf, tensor_name);
         layer->wq = gguf_tensor ? gguf_tensor_to_ggml(ctx, gguf_tensor) : NULL;
+        if (layer->wq) strncpy(layer->wq->name, tensor_name, GGML_MAX_NAME-1);
         
         snprintf(tensor_name, sizeof(tensor_name), "blk.%d.attn_k.weight", i);
         gguf_tensor = gguf_find_tensor(gguf, tensor_name);
         layer->wk = gguf_tensor ? gguf_tensor_to_ggml(ctx, gguf_tensor) : NULL;
+        if (layer->wk) strncpy(layer->wk->name, tensor_name, GGML_MAX_NAME-1);
         
         snprintf(tensor_name, sizeof(tensor_name), "blk.%d.attn_v.weight", i);
         gguf_tensor = gguf_find_tensor(gguf, tensor_name);
         layer->wv = gguf_tensor ? gguf_tensor_to_ggml(ctx, gguf_tensor) : NULL;
+        if (layer->wv) strncpy(layer->wv->name, tensor_name, GGML_MAX_NAME-1);
         
         snprintf(tensor_name, sizeof(tensor_name), "blk.%d.attn_output.weight", i);
         gguf_tensor = gguf_find_tensor(gguf, tensor_name);
         layer->wo = gguf_tensor ? gguf_tensor_to_ggml(ctx, gguf_tensor) : NULL;
+        if (layer->wo) strncpy(layer->wo->name, tensor_name, GGML_MAX_NAME-1);
         
         /* FFN weights - we'll transpose w1 and w3 after loading */
         snprintf(tensor_name, sizeof(tensor_name), "blk.%d.ffn_gate.weight", i);
         gguf_tensor = gguf_find_tensor(gguf, tensor_name);
         layer->w1 = gguf_tensor ? gguf_tensor_to_ggml(ctx, gguf_tensor) : NULL;
+        if (layer->w1) strncpy(layer->w1->name, tensor_name, GGML_MAX_NAME-1);
         
         snprintf(tensor_name, sizeof(tensor_name), "blk.%d.ffn_down.weight", i);
         gguf_tensor = gguf_find_tensor(gguf, tensor_name);
         layer->w2 = gguf_tensor ? gguf_tensor_to_ggml(ctx, gguf_tensor) : NULL;
+        if (layer->w2) strncpy(layer->w2->name, tensor_name, GGML_MAX_NAME-1);
         
         snprintf(tensor_name, sizeof(tensor_name), "blk.%d.ffn_up.weight", i);
         gguf_tensor = gguf_find_tensor(gguf, tensor_name);
         layer->w3 = gguf_tensor ? gguf_tensor_to_ggml(ctx, gguf_tensor) : NULL;
+        if (layer->w3) strncpy(layer->w3->name, tensor_name, GGML_MAX_NAME-1);
         
         /* Don't transpose during loading - we'll handle it differently */
         
@@ -222,8 +246,26 @@ struct llama_model *llama_model_create(struct ggml_context *ctx) {
         return NULL;
     }
     
+    /* Initialize weight cache - 15GB for dequantized weights */
+    model->weight_cache = kzalloc(sizeof(struct llama_weight_cache), GFP_KERNEL);
+    if (model->weight_cache) {
+        size_t cache_size = 15ULL * 1024 * 1024 * 1024; /* 15GB */
+        int ret = llama_weight_cache_init(model->weight_cache, model->hparams.n_layer, cache_size);
+        if (ret < 0) {
+            pr_warn("🦙 Llama: Failed to init weight cache, continuing without it\n");
+            kfree(model->weight_cache);
+            model->weight_cache = NULL;
+        }
+    }
+    
     pr_info("🦙 Llama: Model created - %d layers, %d embd, %d heads\n",
             model->hparams.n_layer, model->hparams.n_embd, model->hparams.n_head);
+    
+    /* Set global weight cache for GGML operations */
+    if (model->weight_cache) {
+        extern void ggml_set_weight_cache(struct llama_weight_cache *cache);
+        ggml_set_weight_cache(model->weight_cache);
+    }
     
     return model;
 }
@@ -231,6 +273,14 @@ struct llama_model *llama_model_create(struct ggml_context *ctx) {
 /* Free model */
 void llama_model_free(struct llama_model *model) {
     if (!model) return;
+    
+    /* Clear global weight cache */
+    if (model->weight_cache) {
+        extern void ggml_set_weight_cache(struct llama_weight_cache *cache);
+        ggml_set_weight_cache(NULL);
+        llama_weight_cache_free(model->weight_cache);
+        kfree(model->weight_cache);
+    }
     
     llama_tokenizer_free(&model->tokenizer);
     kfree(model->layers);
@@ -725,10 +775,8 @@ int32_t llama_sample_token(struct llama_state *state) {
     kernel_fpu_end();
     
     /* Debug: print selected token */
-    if (best_token < 100) {
-        pr_info("🦙 Llama: Sampled token %d (logit=%.3f)\n", 
-                best_token, best_logit);
-    }
+    pr_info("🦙 Llama: Sampled token %d (logit=%.3f)\n", 
+            best_token, best_logit);
     
     return best_token;
 }
@@ -743,32 +791,41 @@ int llama_generate(struct llama_state *state,
     int32_t tokens[512];
     int n_tokens;
     int n_generated = 0;
+    ktime_t start_time, end_time;
+    s64 elapsed_ms;
     
     if (!state || !prompt || !output || max_length <= 0) {
         return -EINVAL;
     }
     
+    /* Track request stats */
+    extern struct llamux_stats llamux_perf_stats;
+    atomic64_inc(&llamux_perf_stats.total_requests);
+    
+    /* Start timing */
+    start_time = ktime_get();
+    atomic64_set(&llamux_perf_stats.last_inference_start, ktime_to_ms(start_time));
+    
     /* Reset state */
     llama_state_reset(state);
     
-    /* Tokenize prompt */
-    n_tokens = llama_tokenize_simple(prompt, tokens, 512);
+    /* Tokenize prompt using model's tokenizer */
+    n_tokens = llama_tokenize(&state->model->tokenizer, prompt, tokens, 512);
     if (n_tokens <= 0) {
         pr_err("🦙 Llama: Failed to tokenize prompt\n");
+        atomic64_inc(&llamux_perf_stats.failed_requests);
         return -1;
     }
     
     pr_info("🦙 Llama: Tokenized prompt into %d tokens\n", n_tokens);
     
-    /* Add BOS token */
-    memmove(tokens + 1, tokens, n_tokens * sizeof(int32_t));
-    tokens[0] = 1; /* BOS */
-    n_tokens++;
+    /* Note: BOS token is already added by llama_tokenize */
     
     /* Evaluate prompt */
     int ret = llama_eval(state, tokens, n_tokens, 0);
     if (ret < 0) {
         pr_err("🦙 Llama: Eval failed with error %d\n", ret);
+        atomic64_inc(&llamux_perf_stats.failed_requests);
         return -1;
     }
     
@@ -815,10 +872,49 @@ int llama_generate(struct llama_state *state,
         n_generated++;
     }
     
-    /* Detokenize response */
-    llama_detokenize_simple(generated_tokens, n_gen, output, max_length);
+    /* Detokenize response using model's tokenizer */
+    llama_detokenize(&state->model->tokenizer, generated_tokens, n_gen, output, max_length);
+    
+    /* Debug: show first few token IDs */
+    pr_info("🦙 Llama: First 10 tokens: %d %d %d %d %d %d %d %d %d %d\n",
+            n_gen > 0 ? generated_tokens[0] : -1,
+            n_gen > 1 ? generated_tokens[1] : -1,
+            n_gen > 2 ? generated_tokens[2] : -1,
+            n_gen > 3 ? generated_tokens[3] : -1,
+            n_gen > 4 ? generated_tokens[4] : -1,
+            n_gen > 5 ? generated_tokens[5] : -1,
+            n_gen > 6 ? generated_tokens[6] : -1,
+            n_gen > 7 ? generated_tokens[7] : -1,
+            n_gen > 8 ? generated_tokens[8] : -1,
+            n_gen > 9 ? generated_tokens[9] : -1);
     
     pr_info("🦙 Llama: Generated %d tokens: %s\n", n_generated, output);
+    
+    /* Calculate performance stats */
+    end_time = ktime_get();
+    elapsed_ms = ktime_ms_delta(end_time, start_time);
+    
+    /* Update stats */
+    atomic64_add(n_generated, &llamux_perf_stats.total_tokens_generated);
+    atomic64_add(elapsed_ms, &llamux_perf_stats.total_inference_time_ms);
+    atomic_set(&llamux_perf_stats.last_batch_tokens, n_generated);
+    
+    /* Calculate tokens per second for this batch */
+    if (elapsed_ms > 0) {
+        int tokens_per_sec = (n_generated * 1000) / elapsed_ms;
+        atomic_set(&llamux_perf_stats.current_tokens_per_sec, tokens_per_sec);
+        pr_info("🦙 Llama: Performance: %d tokens in %lld ms = %d tokens/sec\n",
+                n_generated, elapsed_ms, tokens_per_sec);
+    }
+    
+    /* Update peak memory if needed */
+    if (state->model->ctx) {
+        u64 current_mem = state->model->ctx->mem_used;
+        u64 peak = atomic64_read(&llamux_perf_stats.peak_memory_used);
+        if (current_mem > peak) {
+            atomic64_set(&llamux_perf_stats.peak_memory_used, current_mem);
+        }
+    }
     
     return n_generated;
 }
